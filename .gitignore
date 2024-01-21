@@ -161,3 +161,6 @@ cython_debug/
 
 # Data folder
 handball_sample
+
+# Image folder
+images
