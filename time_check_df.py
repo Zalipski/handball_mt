@@ -123,6 +123,6 @@ if __name__ == "__main__":
 
         time_in_df = df_to_check["formatted local time"][df_to_check["z in m"] == df_to_check["z in m"].min()]
 
-        # Print the difference between tabular and video times
+        # Print difference between tabular and video times
         difference = abs(time_in_df - ts_to_check)
         print("Checkpoint", tag_to_check, ", Video", ts_to_check, ", Difference in ms is:", difference.iloc[0].microseconds/1000, ", Tabular", time_in_df.iloc[0])
