@@ -100,8 +100,8 @@ if __name__ == "__main__":
 
     checkpoints = tags[tags["tag text"] == "time_check_position"].shape[0] # Get number of checkpoints
 
-    for check in range(checkpoints):
-        ts_to_check = tags[tags["tag text"].isin(["time_check_position"])]["rounded_timestamp"].iloc[check]
+    for tag_to_check in range(checkpoints):
+        ts_to_check = tags[tags["tag text"].isin(["time_check_position"])]["rounded_timestamp"].iloc[tag_to_check]
         # Find index where first of i-th check-tag is used
         try:
             # Get previous and next timestamps based on timestamp to check for consideration
@@ -125,4 +125,4 @@ if __name__ == "__main__":
 
         # Print the difference between tabular and video times
         difference = abs(time_in_df - ts_to_check)
-        print("Checkpoint", check, ", Video", ts_to_check, ", Difference in ms is:", difference.iloc[0].microseconds/1000, ", Tabular", time_in_df.iloc[0])
+        print("Checkpoint", tag_to_check, ", Video", ts_to_check, ", Difference in ms is:", difference.iloc[0].microseconds/1000, ", Tabular", time_in_df.iloc[0])
