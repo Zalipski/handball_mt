@@ -8,6 +8,7 @@ from sklearn.model_selection import train_test_split
 import torch
 from torch.utils.data import DataLoader
 from tsai.all import *
+from fastai.metrics import Precision, Recall, F1Score, RocAucBinary, BalancedAccuracy
 import optuna
 from optuna.integration import FastAIPruningCallback
 
@@ -59,8 +60,7 @@ def pivot_df_prep(match_df):
 
     combined_df = pd.concat([ball_df, players_df])
 
-    pivot_df = combined_df.pivot_table(index="formatted local time", columns="Player", values=["x in m", "y in m", "z in m", "speed in m/s",
-                                                                                               "direction of movement in deg", "acceleration in m/s2"])
+    pivot_df = combined_df.pivot_table(index="formatted local time", columns="Player", values=["x in m", "y in m", "speed in m/s", "possession"])
 
     # Flatten multi-index columns
     pivot_df.columns = ["_".join(col).strip() for col in pivot_df.columns.values]
@@ -68,12 +68,10 @@ def pivot_df_prep(match_df):
     # Extract unique player names and sort them
     players = sorted(set([col.split("_")[1] for col in pivot_df.columns if "Player" in col]), key=lambda x: int(x.replace("Player", "")))
 
-    # Reorder columns to group XYZ for each player
-    ordered_columns = ["x in m_Ball", "y in m_Ball", "z in m_Ball", "speed in m/s_Ball", "direction of movement in deg_Ball",
-                    "acceleration in m/s2_Ball"]
+    # Reorder columns to group x, y and possession for each player
+    ordered_columns = ["x in m_Ball", "y in m_Ball", "speed in m/s_Ball"]
     for player in players:
-        ordered_columns.extend([f"x in m_{player}", f"y in m_{player}", f"z in m_{player}", f"speed in m/s_{player}", f"direction of movement in deg_{player}",
-                    f"acceleration in m/s2_{player}"])
+        ordered_columns.extend([f"x in m_{player}", f"y in m_{player}", f"possession_{player}"])
 
     pivot_df = pivot_df[ordered_columns]
     pivot_df.reset_index(inplace=True)
@@ -81,60 +79,79 @@ def pivot_df_prep(match_df):
     pivot_df["formatted local time"] = pd.to_datetime(pivot_df["formatted local time"])
     return pivot_df
 
-def sample_retrieval(pivot_df, label_df, window_start, window_end):
-    """ Retrieves the needed data for each sample by filtering out the window of the chosen pivot DataFrame.
+def calculate_distance(x_player, y_player, x_ball, y_ball):
+    """ Helper function to calculate the euclidean distance between the ball and the player.
     
     Parameters:
-    pivot_df        -- the DataFrame the pivot function should be performed on
-    label_df        -- the regular match data containing the possession labels for each timestamp
-    window_start    -- the start of the window
-    window_end      -- the end of the window
+    x_player -- the x coordinate of the player
+    y_player -- the y coordinate of the player
+    x_ball -- the x coordinate of the ball
+    y_ball -- the y coordinate of the ball
 
     Returns:
-    df_timestamp     -- the DataFrame containing all chosen input variables
-    possession_label -- the label stating who is in possession
-    usable_sample    -- states if the data for the chosen time window has enough timesteps
+    pivot_df -- the match DataFrame after the pivot transformation 
     """
 
-    usable_sample = "True"
+    return np.sqrt((x_ball - x_player) ** 2 + (y_ball - y_player) ** 2)
+
+def var_prep(pivot_df):
+    """ Updates the DataFrame by calculating the distance between every player and the ball.
+    
+    Parameters:
+    pivot_df       -- the pivot transformed DataFrame to be updated
+
+    Returns:
+    pivot_df -- the updated pivot_df
+    """
+    for i in range(1, 15):
+        player_x_col = f"x in m_Player{i}"
+        player_y_col = f"y in m_Player{i}"
+
+        # Calculate distance and replace x coordinate column with it
+        pivot_df[player_x_col] = calculate_distance(pivot_df[player_x_col], pivot_df[player_y_col],
+                                                    pivot_df["x in m_Ball"], pivot_df["y in m_Ball"])
+
+        pivot_df.rename(columns={player_x_col: f"distance_to_ball_Player{i}"}, inplace=True)
+        pivot_df.drop(columns=[player_y_col], inplace=True)
+
+    pivot_df.drop(columns=["x in m_Ball", "y in m_Ball"], inplace=True)
+    pivot_df.dropna(inplace=True)
+    return pivot_df
+
+def sample_retrieval(player_number, pivot_df, window_start, window_end):
+    """ Retrieves the sample values from the specified time window.
+    
+    Parameters:
+    player_number -- the index of the current player within the timestamp
+    pivot_df      -- the pivot transformed DataFrame
+    window_start  -- the starting point of the window
+    window_end    -- the ending point of the window
+
+    Returns:
+    df_timestamp  -- the DataFrame for the current timestamp window
+    label         -- the label indicating if the player is in possession
+    usable_sample -- the string stating wether there is enough data to make the sample usable
+    """
+
+    usable_sample = "true"
     df_timestamp = pivot_df[(pivot_df["formatted local time"] >= window_start) & 
                             (pivot_df["formatted local time"] <= window_end)]
+
     df_len = len(df_timestamp)
     if df_len < input_time_steps:
-        # Discard sample if less than needed amount of input timesteps are present
-        usable_sample = "False"
-        return None, None, usable_sample
-
-    # Get data of considered timestamp
-    df_timestamp = df_timestamp[["x in m_Ball", "y in m_Ball", "z in m_Ball", "speed in m/s_Ball", "direction of movement in deg_Ball", "acceleration in m/s2_Ball",
-                                "x in m_Player1", "y in m_Player1", "z in m_Player1", "speed in m/s_Player1", "direction of movement in deg_Player1", "acceleration in m/s2_Player1",
-                                "x in m_Player2", "y in m_Player2", "z in m_Player2", "speed in m/s_Player2", "direction of movement in deg_Player2", "acceleration in m/s2_Player2",
-                                "x in m_Player3", "y in m_Player3", "z in m_Player3", "speed in m/s_Player3", "direction of movement in deg_Player3", "acceleration in m/s2_Player3",
-                                "x in m_Player4", "y in m_Player4", "z in m_Player4", "speed in m/s_Player4", "direction of movement in deg_Player4", "acceleration in m/s2_Player4",
-                                "x in m_Player5", "y in m_Player5", "z in m_Player5", "speed in m/s_Player5", "direction of movement in deg_Player5", "acceleration in m/s2_Player5",
-                                "x in m_Player6", "y in m_Player6", "z in m_Player6", "speed in m/s_Player6", "direction of movement in deg_Player6", "acceleration in m/s2_Player6",
-                                "x in m_Player7", "y in m_Player7", "z in m_Player7", "speed in m/s_Player7", "direction of movement in deg_Player7", "acceleration in m/s2_Player7",
-                                "x in m_Player8", "y in m_Player8", "z in m_Player8", "speed in m/s_Player8", "direction of movement in deg_Player8", "acceleration in m/s2_Player8",
-                                "x in m_Player9", "y in m_Player9", "z in m_Player9", "speed in m/s_Player9", "direction of movement in deg_Player9", "acceleration in m/s2_Player9",
-                                "x in m_Player10", "y in m_Player10", "z in m_Player10", "speed in m/s_Player10", "direction of movement in deg_Player10", "acceleration in m/s2_Player10",
-                                "x in m_Player11", "y in m_Player11", "z in m_Player11", "speed in m/s_Player11", "direction of movement in deg_Player11", "acceleration in m/s2_Player11",
-                                "x in m_Player12", "y in m_Player12", "z in m_Player12", "speed in m/s_Player12", "direction of movement in deg_Player12", "acceleration in m/s2_Player12",
-                                "x in m_Player13", "y in m_Player13", "z in m_Player13", "speed in m/s_Player13", "direction of movement in deg_Player13", "acceleration in m/s2_Player13",
-                                "x in m_Player14", "y in m_Player14", "z in m_Player14", "speed in m/s_Player14", "direction of movement in deg_Player14", "acceleration in m/s2_Player14"]].to_numpy()
-    
-    # Get possession label by checking which row (i.e. player) is in possession at final timestamp
-    label = label_df[(label_df["formatted local time"] == window_end)]["possession"].to_numpy()
-    label = np.argmax(label)
+        usable_sample = "false" 
+        
+    df_timestamp = df_timestamp[["speed in m/s_Ball", f"distance_to_ball_Player{player_number}"]].to_numpy()
+    label = pivot_df[pivot_df["formatted local time"] == window_end][f"possession_Player{player_number}"]
     return df_timestamp, label, usable_sample
 
-def create_samples(timestamp_game, data_amount, pivot_df, match_df):
+def create_samples(timestamp_game, data_amount, pivot_df):
     """ Creates the complete samples for the train/val/test set.
     
     Parameters:
     timestamp_game -- the DataFrame the pivot function should be performed on
     data_amount    -- the amount of samples to be considered
     pivot_df       -- the pivot transformed DataFrame
-    match_df       -- the end of the window
 
     Returns:
     tsd -- the TimeseriesDataset containing the X and y tensors
@@ -147,26 +164,24 @@ def create_samples(timestamp_game, data_amount, pivot_df, match_df):
     y_list = []
 
     for window_start, window_end in tqdm(zip(window_starts[:data_amount], timestamps[:data_amount])):
-        sample, label, usable_sample = sample_retrieval(pivot_df, match_df, window_start, window_end) # Get data for every timestamp sample by calling sample_retrieval function
-        if usable_sample == "False":
-            continue # Skip sample if it is not usable
-        X_list.append(sample)
-        y_list.append(label)
+        for player_number in range(1, 15):
+            sample, label, usable_sample = sample_retrieval(player_number, pivot_df, window_start, window_end)
+            if usable_sample == "false":
+                break # Skip timestamp if not enough data is available
+            X_list.append(sample)
+            y_list.append(label)
 
     # Convert lists to numpy arrays
     X = np.array(X_list)
     y = np.array(y_list)
 
-    X_na = np.nan_to_num(X, nan=-99) # Replace NaN values with -99
-    X_na = X_na.transpose(0, 2, 1) # Transpose to have correct ordering for TST model 
+    X = X.transpose(0, 2, 1) # Transpose to have correct ordering for TST model 
 
-    # Convert the data to PyTorch tensors
-    X_tensor = torch.tensor(X_na, dtype=torch.float32)
+    X_tensor = torch.tensor(X, dtype=torch.float32)
     y_tensor = torch.tensor(y, dtype=torch.long)
 
-    print(X_tensor.shape, y_tensor.shape)
+    #y_tensor_flatten = y_tensor.flatten()
 
-    # Create TSDatasets
     tsd = TSDatasets(X_tensor, y_tensor)
 
     return tsd
@@ -181,7 +196,7 @@ def objective(trial:optuna.Trial):
     best_valid_loss -- the best validation loss value
     """
 
-    number_of_epochs = 50
+    number_of_epochs = 10
     early_stopping = True # Boolean stating wether early stopping should be used during tuning
 
     # Search space
@@ -192,30 +207,38 @@ def objective(trial:optuna.Trial):
     n_layers = trial.suggest_categorical("n_layers", [2, 3, 4, 5, 6, 7, 8])
     d_model = trial.suggest_categorical("d_model", [128, 256, 512, 1024])
     n_heads = trial.suggest_categorical("n_heads", [2, 8, 10, 12, 14, 16])
-    d_k = trial.suggest_categorical("d_k", [None, 16, 32, 64, 128, 256, 512])
-    d_v = trial.suggest_categorical("d_v", [None, 16, 32, 64, 128, 256, 512])
+    d_k = trial.suggest_categorical("d_k", [8, 16, 32, 64, 128, 256, 512])
+    d_v = trial.suggest_categorical("d_v", [8, 16, 32, 64, 128, 256, 512])
     d_ff = trial.suggest_categorical("d_ff", [256, 512, 1024, 2048, 4096])
 
-    dls = TSDataLoaders.from_dsets(train_ds, val_ds, bs=batch_size, tfms = [None, TSClassification()], batch_tfms=TSStandardize(), num_workers=0)
-    model = TST(c_in=dls.vars, c_out=15, seq_len=dls.len, n_layers=n_layers, d_model=d_model, n_heads=n_heads, d_k=d_k, d_v=d_v, d_ff=d_ff, dropout=dropout, fc_dropout=fc_dropout)
-    learn = Learner(dls, model, loss_func=nn.CrossEntropyLoss(), metrics=[accuracy], cbs=FastAIPruningCallback(trial, monitor="valid_loss"))
+    # Give positive class more weight
+    num_class0 = 13
+    num_class1 = 1
+    total = num_class0 + num_class1
+    weight_class0 = total / (2.0 * num_class0)
+    weight_class1 = total / (2.0 * num_class1)
+    class_weights = torch.tensor([weight_class0, weight_class1])
+
+    dls = TSDataLoaders.from_dsets(train_ds, val_ds, bs=batch_size, tfms = [None, TSClassification()], num_workers=0)
+    model = TST(c_in=dls.vars, c_out=dls.c, seq_len=dls.len, n_layers=n_layers, d_model=d_model, n_heads=n_heads, d_k=d_k, d_v=d_v, d_ff=d_ff, dropout=dropout, fc_dropout=fc_dropout)
+    learn = Learner(dls, model, loss_func=BCEWithLogitsLossFlat(pos_weight=class_weights[1]), metrics=[F1Score()], cbs=FastAIPruningCallback(trial, monitor="valid_loss"))
     
     if early_stopping == False:
         # with ContextManagers([learn.no_logging(), learn.no_bar()]): # Prevents printing anything during training
         learn.fit_one_cycle(number_of_epochs, lr_max=learning_rate)
     else:
-        best_valid_loss = float("inf")
+        best_f1_score = 0
         epochs_since_improvement = 0
-        patience = 10
+        patience = 2
         delta = 0.05
 
         for _ in range(number_of_epochs):
             #with ContextManagers([learn.no_logging(), learn.no_bar()]):
             learn.fit_one_cycle(1, lr_max = learning_rate)
-            current_valid_loss = learn.recorder.values[-1][1]
+            current_f1_score = learn.recorder.values[-1][2]
 
-            if best_valid_loss - current_valid_loss > delta:
-                best_valid_loss = current_valid_loss
+            if best_f1_score - current_f1_score > delta:
+                best_f1_score = current_f1_score
                 epochs_since_improvement = 0
             else:
                 epochs_since_improvement += 1
@@ -223,7 +246,7 @@ def objective(trial:optuna.Trial):
             if epochs_since_improvement >= patience:
                 raise optuna.exceptions.TrialPruned()  # Prune trial if patience is exceeded and not enough improvement has been made
 
-    return best_valid_loss
+    return best_f1_score
 
 # Load data
 match_train_df = pd.read_csv(r"handball_sample\match_training.csv", sep=";", index_col=0)
@@ -247,15 +270,19 @@ print("Pivoting DataFrames")
 pivot_df_train = pivot_df_prep(match_train_df)
 pivot_df_test = pivot_df_prep(match_test_df)
 
+print("Preparing DataFrames")
+pivot_df_train = var_prep(pivot_df_train)
+pivot_df_test = var_prep(pivot_df_test)
+
 # Prepare train, val and test data
-print("Pivoting DataFrames")
-train_ds = create_samples(timestamp_game=train_timestamp_game, data_amount=10000, pivot_df=pivot_df_train, match_df=match_train_df)
-val_ds = create_samples(timestamp_game=val_timestamp_game, data_amount=1000, pivot_df=pivot_df_train, match_df=match_train_df)
-test_ds = create_samples(timestamp_game=test_timestamp_game, data_amount=1000, pivot_df=pivot_df_test, match_df=match_test_df)
+print("Creating samples")
+train_ds = create_samples(timestamp_game=train_timestamp_game, data_amount=10000, pivot_df=pivot_df_train)
+val_ds = create_samples(timestamp_game=val_timestamp_game, data_amount=1000, pivot_df=pivot_df_train)
+test_ds = create_samples(timestamp_game=test_timestamp_game, data_amount=1000, pivot_df=pivot_df_test)
 
 if include_tuning == "True":
     print("Starting Optuna study")
-    study = optuna.create_study(direction="minimize") # Minimize validation loss
+    study = optuna.create_study(direction="maximize") # Minimize validation loss
     study.optimize(objective, n_trials=100)
     
     # Print study statistics
@@ -289,22 +316,30 @@ d_k = params_tst["d_k"][0]
 d_v = params_tst["d_v"][0]
 d_ff = params_tst["d_ff"][0]
 
+# Give positive class more weight
+num_class0 = 13
+num_class1 = 1
+total = num_class0 + num_class1
+weight_class0 = total / (2.0 * num_class0)
+weight_class1 = total / (2.0 * num_class1)
+class_weights = torch.tensor([weight_class0, weight_class1])
+
 # Final model with best params
 print("Training final model")
-dls = TSDataLoaders.from_dsets(train_ds, val_ds, bs=batch_size, tfms = [None, TSClassification()], batch_tfms=TSStandardize(), num_workers=0)
-model = TST(c_in=dls.vars, c_out=15, seq_len=dls.len, n_layers=n_layers, d_model=d_model, n_heads=n_heads, d_k=d_k, d_v=d_v, d_ff=d_ff, dropout=dropout, fc_dropout=fc_dropout)
-learn = Learner(dls, model, loss_func=nn.CrossEntropyLoss(), metrics=[accuracy], cbs=None)
-learn.fit_one_cycle(50, lr_max=learning_rate)
+dls = TSDataLoaders.from_dsets(train_ds, val_ds, bs=batch_size, tfms = [None, TSClassification()], num_workers=0)
+model = TST(c_in=dls.vars, c_out=dls.c, seq_len=dls.len, n_layers=n_layers, d_model=d_model, n_heads=n_heads, d_k=d_k, d_v=d_v, d_ff=d_ff, dropout=dropout, fc_dropout=fc_dropout)
+learn = Learner(dls, model, loss_func=BCEWithLogitsLossFlat(pos_weight=class_weights[1]), metrics=[F1Score(), RocAucBinary(), BalancedAccuracy(), Precision(), Recall()], cbs=None)
+learn.fit_one_cycle(3, lr_max=learning_rate)
 
 learn.export("handball_sample/tst_model.pth") # Save final model
 learner_test = load_learner("handball_sample/tst_model.pth", cpu=False)
 
-# Create a DataLoader from the test dataset
+# Create DataLoader from test dataset
 test_dl = DataLoader(test_ds, batch_size=batch_size, shuffle=False)
 
 # Evaluate performance on test data
-loss, accuracy = learner_test.validate(dl=test_dl)
-print(f"Test Loss: {loss}, Test Accuracy: {accuracy}")
+loss, f1, rocAuc, bal_accuracy, prec, rec = learner_test.validate(dl=test_dl)
+print(f"Test Loss: {loss}, Test F1: {f1}, Test ROC AUC: {rocAuc}, Test Balanced Accuracy: {bal_accuracy}, Test Precision: {prec}, Test Recall: {rec}")
 
 preds, y_true = learner_test.get_preds(dl=test_dl)
 
