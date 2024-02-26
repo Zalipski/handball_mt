@@ -141,8 +141,8 @@ def sample_retrieval(player_number, pivot_df, window_start, window_end):
 
     df_len = len(df_timestamp)
     if df_len < input_time_steps:
-        usable_sample = "false" 
-        
+        usable_sample = "false"
+
     df_timestamp = df_timestamp[["speed in m/s_Ball", f"distance_to_ball_Player{player_number}"]].to_numpy()
     label = pivot_df[pivot_df["formatted local time"] == window_end][f"possession_Player{player_number}"]
     return df_timestamp, label, usable_sample
@@ -156,7 +156,8 @@ def create_samples(timestamp_game, data_amount, pivot_df):
     pivot_df       -- the pivot transformed DataFrame
 
     Returns:
-    tsd -- the TimeseriesDataset containing the X and y tensors
+    tsd     -- the TimeseriesDataset containing the X and y tensors
+    ts_list -- the list containing the used timestamps
     """
 
     timestamps = pd.to_datetime([tg.split("_")[0] for tg in timestamp_game]) # Get timestamps from timestamp_game combination for window calculations
@@ -164,14 +165,18 @@ def create_samples(timestamp_game, data_amount, pivot_df):
 
     X_list = []
     y_list = []
+    ts_list = [] # List for saving used timestamps for being being able to measure prediction performance 
 
     for window_start, window_end in tqdm(zip(window_starts[:data_amount], timestamps[:data_amount])):
         for player_number in range(1, 15):
             sample, label, usable_sample = sample_retrieval(player_number, pivot_df, window_start, window_end)
             if usable_sample == "false":
                 break # Skip timestamp if not enough data is available
+            
+            ts_list.append(window_end)
             X_list.append(sample)
             y_list.append(label)
+        
 
     # Convert lists to numpy arrays
     X = np.array(X_list)
@@ -180,13 +185,11 @@ def create_samples(timestamp_game, data_amount, pivot_df):
     X = X.transpose(0, 2, 1) # Transpose to have correct ordering for TST model 
 
     X_tensor = torch.tensor(X, dtype=torch.float32)
-    y_tensor = torch.tensor(y, dtype=torch.long)
-
-    #y_tensor_flatten = y_tensor.flatten()
+    y_tensor = torch.tensor(y, dtype=torch.float32)
 
     tsd = TSDatasets(X_tensor, y_tensor)
 
-    return tsd
+    return tsd, ts_list
 
 def objective(trial:optuna.Trial):
     """ Creates the search space for hyperparameter tuning and executes the tuning.
@@ -221,9 +224,10 @@ def objective(trial:optuna.Trial):
     weight_class1 = total / (2.0 * num_class1)
     class_weights = torch.tensor([weight_class0, weight_class1])
 
-    dls = TSDataLoaders.from_dsets(train_ds, val_ds, bs=batch_size, tfms = [None, TSClassification()], num_workers=0)
+    dls = TSDataLoaders.from_dsets(train_ds, val_ds, bs=batch_size, tfms=[None, TSClassification()], num_workers=0)
     model = TST(c_in=dls.vars, c_out=dls.c, seq_len=dls.len, n_layers=n_layers, d_model=d_model, n_heads=n_heads, d_k=d_k, d_v=d_v, d_ff=d_ff, dropout=dropout, fc_dropout=fc_dropout)
-    learn = Learner(dls, model, loss_func=BCEWithLogitsLossFlat(pos_weight=class_weights[1]), metrics=[F1Score()], cbs=FastAIPruningCallback(trial, monitor="valid_loss"))
+    learn = Learner(dls, model, loss_func=nn.BCEWithLogitsLoss(pos_weight=class_weights[1]),
+                    metrics=[F1ScoreMulti(), RocAucMulti(), PrecisionMulti(), RecallMulti()], cbs=FastAIPruningCallback(trial, monitor="valid_loss"))
     
     if early_stopping == False:
         # with ContextManagers([learn.no_logging(), learn.no_bar()]): # Prevents printing anything during training
@@ -231,7 +235,7 @@ def objective(trial:optuna.Trial):
     else:
         best_f1_score = 0
         epochs_since_improvement = 0
-        patience = 2
+        patience = 5
         delta = 0.05
 
         for _ in range(number_of_epochs):
@@ -278,9 +282,9 @@ pivot_df_test = var_prep(pivot_df_test)
 
 # Prepare train, val and test data
 print("Creating samples")
-train_ds = create_samples(timestamp_game=train_timestamp_game, data_amount=10000, pivot_df=pivot_df_train)
-val_ds = create_samples(timestamp_game=val_timestamp_game, data_amount=1000, pivot_df=pivot_df_train)
-test_ds = create_samples(timestamp_game=test_timestamp_game, data_amount=1000, pivot_df=pivot_df_test)
+train_ds, _ = create_samples(timestamp_game=train_timestamp_game, data_amount=10000, pivot_df=pivot_df_train)
+val_ds, _ = create_samples(timestamp_game=val_timestamp_game, data_amount=1000, pivot_df=pivot_df_train)
+test_ds, test_timestamps = create_samples(timestamp_game=test_timestamp_game, data_amount=1000, pivot_df=pivot_df_test)
 
 if include_tuning == "True":
     print("Starting Optuna study")
@@ -300,11 +304,11 @@ if include_tuning == "True":
     trial = study.best_trial
 
     # Create DataFrame with best params and save it
-    params_df = pd.DataFrame(trial.params, index = [0])
+    params_df = pd.DataFrame(trial.params, index=[0])
     params_df.to_csv(r"handball_sample\best_params_tst.csv")
 
 # Load best params
-params_tst = pd.read_csv(r"handball_sample\best_params_tst.csv", index_col = 0)
+params_tst = pd.read_csv(r"handball_sample\best_params_tst.csv", index_col=0)
 
 # Retrieve best params data
 learning_rate = float(params_tst["learning_rate"][0]) # Learning rate must be converted to float from numpy.float64 due to error
@@ -328,10 +332,11 @@ class_weights = torch.tensor([weight_class0, weight_class1])
 
 # Final model with best params
 print("Training final model")
-dls = TSDataLoaders.from_dsets(train_ds, val_ds, bs=batch_size, tfms = [None, TSClassification()], num_workers=0)
+dls = TSDataLoaders.from_dsets(train_ds, val_ds, bs=batch_size, tfms=[None, TSClassification()], num_workers=0)
+dls = dls.to(device)
 model = TST(c_in=dls.vars, c_out=dls.c, seq_len=dls.len, n_layers=n_layers, d_model=d_model, n_heads=n_heads, d_k=d_k, d_v=d_v, d_ff=d_ff, dropout=dropout, fc_dropout=fc_dropout)
-learn = Learner(dls, model, loss_func=BCEWithLogitsLossFlat(pos_weight=class_weights[1]), metrics=[F1Score(), RocAucBinary(), BalancedAccuracy(), Precision(), Recall()], cbs=None)
-learn.fit_one_cycle(3, lr_max=learning_rate)
+learn = Learner(dls, model, loss_func=nn.BCEWithLogitsLoss(pos_weight=class_weights[1]), metrics=[F1ScoreMulti(), RocAucMulti(), PrecisionMulti(), RecallMulti()], cbs=None)
+learn.fit_one_cycle(20, lr_max=learning_rate)
 
 learn.export("handball_sample/tst_model.pth") # Save final model
 learner_test = load_learner("handball_sample/tst_model.pth", cpu=False)
@@ -340,14 +345,20 @@ learner_test = load_learner("handball_sample/tst_model.pth", cpu=False)
 test_dl = DataLoader(test_ds, batch_size=batch_size, shuffle=False)
 
 # Evaluate performance on test data
-loss, f1, rocAuc, bal_accuracy, prec, rec = learner_test.validate(dl=test_dl)
-print(f"Test Loss: {loss}, Test F1: {f1}, Test ROC AUC: {rocAuc}, Test Balanced Accuracy: {bal_accuracy}, Test Precision: {prec}, Test Recall: {rec}")
+loss, f1, rocAuc, prec, rec = learn.validate(dl=test_dl)
+print(f"Test Loss: {loss}, Test F1: {f1}, Test ROC AUC: {rocAuc}, Test Precision: {prec}, Test Recall: {rec}")
 
-preds, y_true = learner_test.get_preds(dl=test_dl)
+preds, y_true = learn.get_preds(dl=test_dl)
 
-# Convert predictions to class indices
-class_preds = torch.argmax(preds, dim=1)
-
-print("Performance of final model on test data:")
-accuracy = (class_preds == y_true).float().mean()
-print(f"Accuracy: {accuracy.item()}")
+# Final accuracy over all timestamps
+unique = list(dict.fromkeys(test_timestamps))
+predicted_df = match_test_df[match_test_df["formatted local time"].isin(unique)]
+predicted_df = predicted_df.drop(predicted_df[predicted_df["full name"].str.contains("ball")].index, axis=0)
+predicted_df["possession_pred_prob"] = preds
+# Identify highest probability for possession within each timestamp
+predicted_df['max_flag'] = predicted_df.groupby('formatted local time')['possession_pred_prob'].transform(lambda x: (x == x.max()).astype(int))
+predicted_df['correct'] = (predicted_df['max_flag'] == predicted_df['possession']).astype(int)
+total_timestamps = predicted_df['formatted local time'].nunique()
+num_timestamps_all_correct = predicted_df.groupby('formatted local time')['correct'].all().sum()
+total_timestamps = predicted_df['formatted local time'].nunique()
+print(f"Number of correct timestamps: {num_timestamps_all_correct}, number of total timestamps: {total_timestamps}, Accuracy: {num_timestamps_all_correct / total_timestamps}")
