@@ -89,16 +89,18 @@ def calculate_distance(x_player, y_player, x_ball, y_ball):
     y_ball -- the y coordinate of the ball
 
     Returns:
-    pivot_df -- the match DataFrame after the pivot transformation 
+    euclidean_distance -- the euclidean distance between the player and the ball
     """
 
-    return np.sqrt((x_ball - x_player) ** 2 + (y_ball - y_player) ** 2)
+    euclidean_distance = np.sqrt((x_ball - x_player) ** 2 + (y_ball - y_player) ** 2)
+
+    return euclidean_distance
 
 def var_prep(pivot_df):
     """ Updates the DataFrame by calculating the distance between every player and the ball.
     
     Parameters:
-    pivot_df       -- the pivot transformed DataFrame to be updated
+    pivot_df -- the pivot transformed DataFrame to be updated
 
     Returns:
     pivot_df -- the updated pivot_df

@@ -6,7 +6,7 @@ import random
 import os
 from tsai.all import *
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import f1_score, precision_score, recall_score, accuracy_score, classification_report
+from sklearn.metrics import f1_score, precision_score, recall_score, classification_report
 from pgmpy.models import BayesianNetwork
 from pgmpy.estimators import MaximumLikelihoodEstimator
 from pgmpy.inference import VariableElimination
@@ -29,18 +29,13 @@ def set_every_seed(seed=42):
 set_every_seed()
 
 def df_prep(match_df):
-    """ Reafadfadfrom the specified time window.
+    """ Prepares the data for training the models.
     
     Parameters:
-    player_number -- the index of the current player within the timestamp
-    pivot_df      -- the pivot transformed DataFrame
-    window_start  -- the starting point of the window
-    window_end    -- the ending point of the window
+    match_df -- the DataFrame containing the match data
 
     Returns:
-    df_timestamp  -- the DataFrame for the current timestamp window
-    label         -- the label indicating if the player is in possession
-    usable_sample -- the string stating wether there is enough data to make the sample usable
+    aligned_data -- the prepared DataFrame
     """
 
     ball_data = match_df[match_df["full name"].str.contains("ball")]
@@ -63,42 +58,20 @@ def df_prep(match_df):
     aligned_data.dropna(subset=["distance_to_ball_binned", "possession", "speed_ball_binned", "speed_player_binned"], inplace=True)
     return aligned_data
 
-match_train_df = pd.read_csv(r"handball_sample\match_training.csv", sep=";", index_col=0)
-match_test_df = pd.read_csv(r"handball_sample\match_test.csv", sep=";", index_col=0)
-
-match_train_df['formatted local time'] = pd.to_datetime(match_train_df['formatted local time'])
-match_test_df['formatted local time'] = pd.to_datetime(match_test_df['formatted local time'])
-
-# Only use visible timestamps for training and testing
-visible_df_train = match_train_df[(match_train_df["tag text"] != "not_visible")]
-visible_df_test = match_test_df[(match_test_df["tag text"] != "not_visible")]
-
-train_df, val_df = train_test_split(visible_df_train, test_size=0.2, random_state=42)
-
-train_df = df_prep(train_df)
-val_df = df_prep(val_df)
-test_df = df_prep(visible_df_test)
-
-bn_model_features = [('distance_to_ball_binned', 'possession'),
-                    ('speed_ball_binned', 'possession'),
-                    ('speed_player_binned', 'possession')]
-
-model = BayesianNetwork(bn_model_features)
-model.fit(train_df[["distance_to_ball_binned", "possession", "speed_ball_binned", "speed_player_binned"]], estimator=MaximumLikelihoodEstimator)
-
 def evaluate_model(model, data, target_variable='possession'):
-    """ adsfadfadf the specified time window.
+    """ Calculates the performance scores based on the used model and data.
     
     Parameters:
-    player_number -- the index of the current player within the timestamp
-    pivot_df      -- the pivot transformed DataFrame
-    window_start  -- the starting point of the window
-    window_end    -- the ending point of the window
+    model            -- the trained model
+    data             -- the data used for the model training
+    target_variable  -- the target variable to be predicted
 
     Returns:
-    df_timestamp  -- the DataFrame for the current timestamp window
-    label         -- the label indicating if the player is in possession
-    usable_sample -- the string stating wether there is enough data to make the sample usable
+    f1            -- the F1-score
+    precision     -- the Precision score
+    recall        -- the Recall score
+    predictions   -- the predictions
+    probabilities -- the probability values of the predictions
     """
     
     infer = VariableElimination(model)
@@ -119,14 +92,39 @@ def evaluate_model(model, data, target_variable='possession'):
     recall = recall_score(true_values, predictions, average='macro')
     return f1, precision, recall, predictions, probabilities
 
+match_train_df = pd.read_csv(r"handball_sample\match_training.csv", sep=";", index_col=0)
+match_test_df = pd.read_csv(r"handball_sample\match_test.csv", sep=";", index_col=0)
+
+match_train_df['formatted local time'] = pd.to_datetime(match_train_df['formatted local time'])
+match_test_df['formatted local time'] = pd.to_datetime(match_test_df['formatted local time'])
+
+# Only use visible timestamps for training and testing
+visible_df_train = match_train_df[(match_train_df["tag text"] != "not_visible")]
+visible_df_test = match_test_df[(match_test_df["tag text"] != "not_visible")]
+
+train_df, val_df = train_test_split(visible_df_train, test_size=0.2, random_state=42)
+
+train_df = df_prep(train_df)
+val_df = df_prep(val_df)
+test_df = df_prep(visible_df_test)
+
+bn_model_features = [('distance_to_ball_binned', 'possession'),
+                    ('speed_ball_binned', 'possession'),
+                    ('speed_player_binned', 'possession')]
+
+training_data = ["distance_to_ball_binned", "possession", "speed_ball_binned", "speed_player_binned"]
+
+model = BayesianNetwork(bn_model_features)
+model.fit(train_df[training_data], estimator=MaximumLikelihoodEstimator)
+
 # Evaluate on validation set
-val_f1, val_precision, val_recall, _, _ = evaluate_model(model, val_df[["distance_to_ball_binned", "possession", "speed_ball_binned", "speed_player_binned"]])
+val_f1, val_precision, val_recall, _, _ = evaluate_model(model, val_df[training_data])
 print("Validation F1 Score:", val_f1)
 print("Validation Precision:", val_precision)
 print("Validation Recall:", val_recall)
 
 # Evaluate on test set
-test_f1, test_precision, test_recall, test_predictions, test_probabilities = evaluate_model(model, test_df[["distance_to_ball_binned", "possession", "speed_ball_binned", "speed_player_binned"]])
+test_f1, test_precision, test_recall, test_predictions, test_probabilities = evaluate_model(model, test_df[training_data])
 print("Test F1 Score:", test_f1)
 print("Test Precision:", test_precision)
 print("Test Recall:", test_recall)
