@@ -91,8 +91,8 @@ def evaluate_model(model, data, target_variable='possession'):
     recall = recall_score(true_values, predictions, average='macro')
     return f1, precision, recall, predictions, probabilities
 
-match_train_df = pd.read_csv(r"handball_sample\match_training.csv", sep=";", index_col=0)
-match_test_df = pd.read_csv(r"handball_sample\match_test.csv", sep=";", index_col=0)
+match_train_df = pd.read_csv(r"handball_sample\match_training_model.csv", sep=";", index_col=0)
+match_test_df = pd.read_csv(r"handball_sample\match_test_model.csv", sep=";", index_col=0)
 
 match_train_df['formatted local time'] = pd.to_datetime(match_train_df['formatted local time'])
 match_test_df['formatted local time'] = pd.to_datetime(match_test_df['formatted local time'])
