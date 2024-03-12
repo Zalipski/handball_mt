@@ -64,7 +64,6 @@ def evaluate_model(model, data, target_variable='possession'):
     Parameters:
     model            -- the trained model
     data             -- the data used for the model training
-    target_variable  -- the target variable to be predicted
 
     Returns:
     f1            -- the F1-score
@@ -78,15 +77,15 @@ def evaluate_model(model, data, target_variable='possession'):
     predictions = []
     probabilities = []
     for _, row in data.iterrows():
-        observed_evidence = row.drop(target_variable).to_dict()
-        prediction = infer.query(variables=[target_variable], evidence=observed_evidence)
+        observed_evidence = row.drop("possession").to_dict()
+        prediction = infer.query(variables=["possession"], evidence=observed_evidence)
         
-        predicted_state = prediction.state_names[target_variable][np.argmax(prediction.values)]
+        predicted_state = prediction.state_names["possession"][np.argmax(prediction.values)]
         predictions.append(predicted_state)
         
         prob_dist = prediction.values
         probabilities.append(prob_dist)
-    true_values = data[target_variable].tolist()
+    true_values = data["possession"].tolist()
     f1 = f1_score(true_values, predictions, average='macro')
     precision = precision_score(true_values, predictions, average='macro')
     recall = recall_score(true_values, predictions, average='macro')
