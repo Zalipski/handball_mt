@@ -48,17 +48,31 @@ def df_prep(match_df):
         (aligned_data['x in m_player'] - aligned_data['x in m_ball']) ** 2 +
         (aligned_data['y in m_player'] - aligned_data['y in m_ball']) ** 2
     )
-
-    bins = [0.2, 0.5, 1, 5, 10, 50, np.inf]
-    labels = [1, 2, 3, 4, 5, 6]
-    aligned_data['distance_to_ball_binned'] = pd.cut(aligned_data['distance_to_ball'], bins=bins, labels=labels)
-    aligned_data['speed_player_binned'] = pd.cut(aligned_data['speed in m/s_player'], bins=bins, labels=labels)
-    aligned_data['speed_ball_binned'] = pd.cut(aligned_data['speed in m/s_ball'], bins=bins, labels=labels)
-
-    aligned_data.dropna(subset=["distance_to_ball_binned", "possession", "speed_ball_binned", "speed_player_binned"], inplace=True)
     return aligned_data
 
-def evaluate_model(model, data, target_variable='possession'):
+def discretize_data(discretization_vars, binned_vars, aligned_data):
+    """ Discretizes the chosen variables in the given DataFrame.
+    
+    Parameters:
+    discretization_var -- the variable to be discretized
+    aligned_data       -- the DataFrame to be prepared
+
+    Returns:
+    aligned_data -- the prepared DataFrame
+    """
+
+    bins = [0, 0.2, 0.3, 0.5, 0.7, 2, np.inf]
+
+    for i in range(len(binned_vars)):
+        aligned_data[binned_vars[i]] = pd.cut(aligned_data[discretization_vars[i]],
+                                            bins=bins,
+                                            labels=range(1, len(bins)))
+
+    aligned_data.dropna(subset=binned_vars, inplace=True)
+
+    return aligned_data
+
+def evaluate_model(model, data):
     """ Calculates the performance scores based on the used model and data.
     
     Parameters:
@@ -103,27 +117,28 @@ visible_df_test = match_test_df[(match_test_df["tag text"] != "not_visible")]
 
 train_df, val_df = train_test_split(visible_df_train, test_size=0.2, random_state=42)
 
+training_vars = ["distance_to_ball", "speed in m/s_ball", "speed in m/s_player"]
+binned_training_vars = ["distance_to_ball_binned", "speed_ball_binned", "speed_player_binned"]
+
 train_df = df_prep(train_df)
 val_df = df_prep(val_df)
 test_df = df_prep(visible_df_test)
+
+train_df = discretize_data(training_vars, binned_training_vars, train_df)
+val_df = discretize_data(training_vars, binned_training_vars, val_df)
+test_df = discretize_data(training_vars, binned_training_vars, test_df)
 
 bn_model_features = [('distance_to_ball_binned', 'possession'),
                     ('speed_ball_binned', 'possession'),
                     ('speed_player_binned', 'possession')]
 
-training_data = ["distance_to_ball_binned", "possession", "speed_ball_binned", "speed_player_binned"]
+binned_training_vars += ["possession"]
 
 model = BayesianNetwork(bn_model_features)
-model.fit(train_df[training_data], estimator=MaximumLikelihoodEstimator)
-
-# Evaluate on validation set
-val_f1, val_precision, val_recall, _, _ = evaluate_model(model, val_df[training_data])
-print("Validation F1 Score:", val_f1)
-print("Validation Precision:", val_precision)
-print("Validation Recall:", val_recall)
+model.fit(train_df[binned_training_vars], estimator=MaximumLikelihoodEstimator)
 
 # Evaluate on test set
-test_f1, test_precision, test_recall, test_predictions, test_probabilities = evaluate_model(model, test_df[training_data])
+test_f1, test_precision, test_recall, test_predictions, test_probabilities = evaluate_model(model, test_df[binned_training_vars])
 print("Test F1 Score:", test_f1)
 print("Test Precision:", test_precision)
 print("Test Recall:", test_recall)
