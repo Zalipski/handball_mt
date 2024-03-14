@@ -4,9 +4,14 @@ from datetime import timedelta
 import sys
 import time_check_df
 
-preparation_type, game = sys.argv[1], sys.argv[2]
+preparation_type, game, stats = sys.argv[1], sys.argv[2], sys.argv[3]
 
 offsets = {"FLEvsKIE": 500,  "ERLvsFLE": 300, "FLEvsEIS": 400, "FLEvsRNL": None, "GUMvsFLE": -1300, "FLEvsMEL": 350} # Offset values for tags, depend on comparison in time_check_df
+
+if stats == "True":
+    file_name_add = "stats"
+else:
+    file_name_add = "model"
 
 if preparation_type == "single":
     # Load data 
@@ -78,99 +83,108 @@ if preparation_type == "single":
     # Remove every player sitting on bench and every ball not in use
     match_full.drop(match_full[match_full["y in m"] < -10].index, inplace=True)
     
-    # Only use timestamps where exactly one ball and 14 players are present
-    group_counts = match_full.groupby("formatted local time")["group name"].agg(ball_count=lambda x: (x == "Ball").sum(), player_count=lambda x: (x != "Ball").sum()).reset_index()
-    filtered_timestamps = group_counts[(group_counts["ball_count"] == 1) & (group_counts["player_count"] == 14)]["formatted local time"]
-    filtered_match = match_full[match_full["formatted local time"].isin(filtered_timestamps)]
-    filtered_match.loc[:, "formatted local time"] = pd.to_datetime(filtered_match["formatted local time"])
+    if stats == "False":
+        # Only use timestamps where exactly one ball and 12-14 players are present
+        group_counts = match_full.groupby("formatted local time")["group name"].agg(ball_count=lambda x: (x == "Ball").sum(), player_count=lambda x: (x != "Ball").sum()).reset_index()
+        filtered_timestamps = group_counts[(group_counts["ball_count"] == 1) & (group_counts["player_count"] >= 12) & (group_counts["player_count"] <= 14)]["formatted local time"]
+        filtered_match = match_full[match_full["formatted local time"].isin(filtered_timestamps)]
+        filtered_match.loc[:, "formatted local time"] = pd.to_datetime(filtered_match["formatted local time"])
 
-    filtered_merged_df = pd.merge(filtered_match, tags_full, left_on="formatted local time", right_on="timestamp", how="left")
-    filtered_merged_df.drop(["ball possession (id of possessed ball)", "ts in ms", "sensor id", "mapped id", "league id", "group id",
-                            "group name", "total distance in m", "timestamp", "# time (in ms)", "adjusted_timestamp"], axis=1, inplace=True)
-    
+        filtered_merged_df = pd.merge(filtered_match, tags_full, left_on="formatted local time", right_on="timestamp", how="left")
+        
+        filtered_merged_df.drop(["ts in ms", "sensor id", "mapped id", "league id", "group id",
+                            "total distance in m", "timestamp", "# time (in ms)", "adjusted_timestamp"], axis=1, inplace=True)
+        prepared_match = filtered_merged_df
+    else:
+        match_full = pd.merge(match_full, tags_full, left_on="formatted local time", right_on="timestamp", how="left")
+        match_full.drop(["ts in ms", "sensor id", "mapped id", "league id", "group id",
+                            "total distance in m", "timestamp", "# time (in ms)", "adjusted_timestamp"], axis=1, inplace=True)
+        prepared_match = match_full
+
     # Prepare columns for possession classification
-    filtered_merged_df["full name"] = filtered_merged_df["full name"].str.lower().str.replace(" ", "_")
-    filtered_merged_df["tag text"] = filtered_merged_df["tag text"].apply(lambda x: x[x.find("_") + 1:])
+    prepared_match["full name"] = prepared_match["full name"].str.lower().str.replace(" ", "_")
+    prepared_match["tag text"] = prepared_match["tag text"].apply(lambda x: x[x.find("_") + 1:])
 
     # Correct player names
     # Kiel
-    filtered_merged_df["tag text"].replace("elias_eliefsen_á_skipagotu", "elias_ellefsen_á_skipagøtu", inplace=True)
-    filtered_merged_df["tag text"].replace("kevin_moller", "kevin_møller", inplace=True)
-    filtered_merged_df["tag text"].replace("petter_overby", "petter_øverby", inplace=True)
-    filtered_merged_df["full name"].replace("mads__mensah_larsen", "mads_mensah_larsen", inplace=True)
-    filtered_merged_df["full name"].replace("simon__pytlick", "simon_pytlick", inplace=True)
+    prepared_match["tag text"].replace("elias_eliefsen_á_skipagotu", "elias_ellefsen_á_skipagøtu", inplace=True)
+    prepared_match["tag text"].replace("kevin_moller", "kevin_møller", inplace=True)
+    prepared_match["tag text"].replace("petter_overby", "petter_øverby", inplace=True)
+    prepared_match["full name"].replace("mads__mensah_larsen", "mads_mensah_larsen", inplace=True)
+    prepared_match["full name"].replace("simon__pytlick", "simon_pytlick", inplace=True)
     # Erlangen
-    filtered_merged_df["tag text"].replace("lasse_moller", "lasse_møller", inplace=True)
-    filtered_merged_df["full name"].replace("gedeón_guardiola_", "gedeón_guardiola", inplace=True)
-    filtered_merged_df["tag text"].replace("mads-peter_lonborg", "mads-peter_lønborg", inplace=True)
-    filtered_merged_df["tag text"].replace("nicolai_link", "nikolai_link", inplace=True)
+    prepared_match["tag text"].replace("lasse_moller", "lasse_møller", inplace=True)
+    prepared_match["full name"].replace("gedeón_guardiola_", "gedeón_guardiola", inplace=True)
+    prepared_match["tag text"].replace("mads-peter_lonborg", "mads-peter_lønborg", inplace=True)
+    prepared_match["tag text"].replace("nicolai_link", "nikolai_link", inplace=True)
     # Eisenach
     # no change needed
     # RNL
 
     # Gummersbach
-    filtered_merged_df["tag text"].replace("ellidi_vidarsson", "ellidi_snaer_vidarsson", inplace=True)
-    filtered_merged_df["tag text"].replace("teitur_orn_einarsson", "teitur_örn_einarsson", inplace=True)
+    prepared_match["tag text"].replace("ellidi_vidarsson", "ellidi_snaer_vidarsson", inplace=True)
+    prepared_match["tag text"].replace("teitur_orn_einarsson", "teitur_örn_einarsson", inplace=True)
     # Melsungen
-    filtered_merged_df["full name"].replace("rogerio__moraes_ferreira", "rogerio_moraes_ferreira", inplace=True)
-    filtered_merged_df["tag text"].replace("erik_balenciaga_azcue", "erik_balenciaga", inplace=True)
-    filtered_merged_df["tag text"].replace("sindre_andre_aho", "sindre_aho", inplace=True)
+    prepared_match["full name"].replace("rogerio__moraes_ferreira", "rogerio_moraes_ferreira", inplace=True)
+    prepared_match["tag text"].replace("erik_balenciaga_azcue", "erik_balenciaga", inplace=True)
+    prepared_match["tag text"].replace("sindre_andre_aho", "sindre_aho", inplace=True)
 
     # Check if all players of tag text match full name
-    print("Difference between tag_text names and full_name names: ", set(filtered_merged_df["tag text"].unique()) ^ set(filtered_merged_df["full name"].unique()))
+    print("Difference between tag_text names and full_name names: ", set(prepared_match["tag text"].unique()) ^ set(prepared_match["full name"].unique()))
 
     # Create possession column based on tag text, showing 1 for player in possession and otherwise 0
-    filtered_merged_df["possession"] = 0
-    for index, row in filtered_merged_df.iterrows():
+    prepared_match["possession"] = 0
+    for index, row in prepared_match.iterrows():
         if row["tag text"] == "not_visible":
-            filtered_merged_df.at[index, "possession"] = -1 # Set value to -1 if possession can not be reliably stated in timestamp
+            prepared_match.at[index, "possession"] = -1 # Set value to -1 if possession can not be reliably stated in timestamp
         if row["full name"] == row["tag text"]:
-            filtered_merged_df.at[index, "possession"] = 1
+            prepared_match.at[index, "possession"] = 1
 
-    # Drop timestamps with no possession in it
-    # Group by timestamp and check if all possession values are 0
-    timestamps_with_all_zeros = filtered_merged_df.groupby("formatted local time")["possession"].apply(lambda x: x.eq(0).all())
-    # Filter timestamps where condition is True
-    result_timestamps = timestamps_with_all_zeros[timestamps_with_all_zeros].index
-    # Filter out these timestamps from original DataFrame
-    result_df = filtered_merged_df[~filtered_merged_df["formatted local time"].isin(result_timestamps)]
+    if stats == "False":
+        # Drop timestamps with no possession in it
+        # Group by timestamp and check if all possession values are 0
+        timestamps_with_all_zeros = prepared_match.groupby("formatted local time")["possession"].apply(lambda x: x.eq(0).all())
+        # Filter timestamps where condition is True
+        result_timestamps = timestamps_with_all_zeros[timestamps_with_all_zeros].index
+        # Filter out these timestamps from original DataFrame
+        prepared_match = prepared_match[~prepared_match["formatted local time"].isin(result_timestamps)]
 
     # Due to merging with two tags at same timestamp, some rows are present twice, drop duplicates
-    result_df.drop_duplicates(subset=["formatted local time", "full name", "x in m", "speed in m/s"], inplace=True)
+    prepared_match.drop_duplicates(subset=["formatted local time", "full name", "x in m", "speed in m/s"], inplace=True)
 
-    result_df["game"] = game
+    prepared_match["game"] = game
 
     if game == "FLEvsKIE":
-        result_df.to_csv(r"handball_sample\MD05_Flensburg_Kiel\flensburg_kiel_md5_3.csv", sep=";")
+        prepared_match.to_csv(f"handball_sample/MD05_Flensburg_Kiel/flensburg_kiel_md5_{file_name_add}.csv", sep=";")
     elif game == "ERLvsFLE":
-        result_df.to_csv(r"handball_sample\MD10_Erlangen_Flensburg\erlangen_flensburg_md10.csv", sep=";")
+        prepared_match.to_csv(f"handball_sample/MD10_Erlangen_Flensburg/erlangen_flensburg_md10_{file_name_add}.csv", sep=";")
     elif game == "FLEvsEIS":
-        result_df.to_csv(r"handball_sample\MD11_Flensburg_Eisenach\flensburg_eisenach_md11.csv", sep=";")
+        prepared_match.to_csv(f"handball_sample/MD11_Flensburg_Eisenach/flensburg_eisenach_md11_{file_name_add}.csv", sep=";")
     # elif game == "FLEvsRNL":
-    #     result_df.to_csv(r"handball_sample\MD13_Flensburg_RNL\flensburg_rnl_md13.csv", sep=";")
+    #     result_df.to_csv(f"handball_sample/MD13_Flensburg_RNL/flensburg_rnl_md13_{file_name_add}.csv", sep=";")
     elif game == "GUMvsFLE":
-        result_df.to_csv(r"handball_sample\MD14_Gummersbach_Flensburg\gummersbach_flensburg_md14.csv", sep=";")
+        prepared_match.to_csv(f"handball_sample/MD14_Gummersbach_Flensburg/gummersbach_flensburg_md14_{file_name_add}.csv", sep=";")
     elif game == "FLEvsMEL":
-        result_df.to_csv(r"handball_sample\MD15_Flensburg_Melsungen\flensburg_melsungen_md15.csv", sep=";")
+        prepared_match.to_csv(f"handball_sample/MD15_Flensburg_Melsungen/flensburg_melsungen_md15_{file_name_add}.csv", sep=";")
     print("Single DataFrame saved")
 
 elif preparation_type == "all":
     # Load data
-    match_fle_kie = pd.read_csv(r"handball_sample\MD05_Flensburg_Kiel\flensburg_kiel_md5_3.csv", index_col=0, sep=";")
-    match_erl_fle = pd.read_csv(r"handball_sample\MD10_Erlangen_Flensburg\erlangen_flensburg_md10.csv", index_col=0, sep=";")
-    match_fle_eis = pd.read_csv(r"handball_sample\MD11_Flensburg_Eisenach\flensburg_eisenach_md11.csv", index_col=0, sep=";")
-    #match_fle_rnl = pd.read_csv(r"handball_sample\MD13_Flensburg_RNL\flensburg_rnl_md13.csv", index_col=0, sep=";")
-    match_gum_fle = pd.read_csv(r"handball_sample\MD14_Gummersbach_Flensburg\gummersbach_flensburg_md14.csv", index_col=0, sep=";")
-    match_fle_mel = pd.read_csv(r"handball_sample\MD15_Flensburg_Melsungen\flensburg_melsungen_md15.csv", index_col=0, sep=";")
+    match_fle_kie = pd.read_csv(f"handball_sample/MD05_Flensburg_Kiel/flensburg_kiel_md5_{file_name_add}.csv", index_col=0, sep=";")
+    match_erl_fle = pd.read_csv(f"handball_sample/MD10_Erlangen_Flensburg/erlangen_flensburg_md10_{file_name_add}.csv", index_col=0, sep=";")
+    match_fle_eis = pd.read_csv(f"handball_sample/MD11_Flensburg_Eisenach/flensburg_eisenach_md11_{file_name_add}.csv", index_col=0, sep=";")
+    #match_fle_rnl = pd.read_csv(f"handball_sample/MD13_Flensburg_RNL/flensburg_rnl_md13{file_name_add}.csv", index_col=0, sep=";")
+    match_gum_fle = pd.read_csv(f"handball_sample/MD14_Gummersbach_Flensburg/gummersbach_flensburg_md14_{file_name_add}.csv", index_col=0, sep=";")
+    match_fle_mel = pd.read_csv(f"handball_sample/MD15_Flensburg_Melsungen/flensburg_melsungen_md15_{file_name_add}.csv", index_col=0, sep=";")
     
     match_full_train = pd.concat([match_fle_kie, match_erl_fle, match_fle_eis, match_gum_fle]).reset_index()
     # Create combination of timestamps and corresponding games to make sure correct data is used in each sample for later models
     match_full_train["timestamp_game"] = match_full_train["formatted local time"] + "_" + match_full_train["game"] 
-    match_full_train.to_csv(r"handball_sample\match_training.csv", sep=";")
+    match_full_train.to_csv(f"handball_sample/match_training_{file_name_add}.csv", sep=";")
 
     match_full_test = pd.concat([match_fle_mel])
     # Create combination of timestamps and corresponding games to make sure correct data is used in each sample for later models
     match_full_test["timestamp_game"] = match_full_test["formatted local time"] + "_" + match_full_test["game"]
-    match_full_test.to_csv(r"handball_sample\match_test.csv", sep=";")
+    match_full_test.to_csv(f"handball_sample/match_test_{file_name_add}.csv", sep=";")
 
-    print("Complete DataFrames saved")
+    print("Complete DataFrames saved") 
