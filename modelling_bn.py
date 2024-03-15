@@ -89,6 +89,7 @@ def discretize_data(discretization_vars, binned_vars, aligned_data, discretizati
             X_test = np.array(discretized_data[discretized_variable]).reshape(-1, 1)
             # Load best KMeans model for variable and use model to discretize it
             k_means = load(f"handball_sample\k_means_model_{binned_variable}.joblib")
+            discretized_data = discretized_data.copy()
             discretized_data[binned_variable] = k_means.predict(X_test)
 
     discretized_data.dropna(subset=binned_vars, inplace=True)
