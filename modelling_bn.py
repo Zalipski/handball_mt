@@ -224,6 +224,7 @@ val_df_prep = df_prep(val_df)
 test_df_prep = df_prep(visible_df_test)
 
 if tuning == "True":
+    start_time_tuning = datetime.now()
     tuning_values = {}
     for i in tqdm(range(len(training_vars))):
         variable = training_vars[i]
@@ -237,7 +238,10 @@ if tuning == "True":
     tuning_df = pd.DataFrame(tuning_values).T
     tuning_df.columns = ["Best technique", "Best bins", "Best F1-score"]
     tuning_df.to_csv(r"handball_sample/best_params_bn.csv")
+    end_time_tuning = datetime.now()
+    print(end_time_tuning, "Time taken for tuning: ", end_time_tuning-start_time_tuning)
 else:
+    start_time_final = datetime.now()
     best_params = pd.read_csv(r"handball_sample\best_params_bn.csv", index_col=0)
 
     train_df_discr = discretize_data(training_vars, binned_training_vars, train_df_prep, best_params)
@@ -274,3 +278,5 @@ else:
     num_timestamps_all_correct = test_df_discr.groupby("formatted local time", observed=True)["correct"].all().sum()
     total_timestamps = test_df_discr["formatted local time"].nunique()
     print(num_timestamps_all_correct, total_timestamps, num_timestamps_all_correct / total_timestamps)
+    end_time_final = datetime.now()
+    print(end_time_final, "Time taken for tuning: ", end_time_final-start_time_final)
