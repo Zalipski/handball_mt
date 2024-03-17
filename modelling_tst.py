@@ -45,16 +45,20 @@ def pivot_df_prep(match_df):
     match_df -- the DataFrame containing the match data
 
     Returns:
-    pivot_df -- the match DataFrame after the pivot transformation 
+    pivot_df              -- the match DataFrame after the pivot transformation
+    timestamp_player_dict -- the dictionary containing the players for each timestamp
     """
+
+    match_df["formatted local time"] = pd.to_datetime(match_df["formatted local time"])
 
     # Separate DataFrame for ball and players to correctly create numbers for players, otherwise number of ball row index is skipped
     ball_df = match_df[match_df["full name"].str.contains("ball", case=False)].copy()
     players_df = match_df[~match_df["full name"].str.contains("ball", case=False)].copy()
 
-    # Assign player numbers, starting from 1
-    players_df["Player"] = players_df.groupby("formatted local time").cumcount() + 1
-    players_df["Player"] = players_df.apply(lambda x: "Ball" if "ball" in x["full name"].lower() else f"Player{x['Player']}", axis=1)
+    # Create dict with player names playing as dict value for corresponding timestamp as dict key
+    timestamp_player_dict = players_df.groupby("formatted local time")["full name"].apply(list).to_dict()
+
+    players_df["Player"] = players_df["full name"]
     ball_df["Player"] = "Ball"
 
     combined_df = pd.concat([ball_df, players_df])
@@ -65,7 +69,7 @@ def pivot_df_prep(match_df):
     pivot_df.columns = ["_".join(col).strip() for col in pivot_df.columns.values]
 
     # Extract unique player names and sort them
-    players = sorted(set([col.split("_")[1] for col in pivot_df.columns if "Player" in col]), key=lambda x: int(x.replace("Player", "")))
+    players = sorted(set([col[col.find("_") + 1:] for col in pivot_df.columns if not "Ball" in col]))
 
     # Reorder columns to group x, y and possession for each player
     ordered_columns = ["x in m_Ball", "y in m_Ball", "speed in m/s_Ball"]
@@ -75,8 +79,7 @@ def pivot_df_prep(match_df):
     pivot_df = pivot_df[ordered_columns]
     pivot_df.reset_index(inplace=True)
 
-    pivot_df["formatted local time"] = pd.to_datetime(pivot_df["formatted local time"])
-    return pivot_df
+    return pivot_df, timestamp_player_dict
 
 def calculate_distance(x_player, y_player, x_ball, y_ball):
     """ Helper function to calculate the euclidean distance between the ball and the player.
@@ -104,26 +107,27 @@ def var_prep(pivot_df):
     Returns:
     pivot_df -- the updated pivot_df
     """
-    for i in range(1, 15):
-        player_x_col = f"x in m_Player{i}"
-        player_y_col = f"y in m_Player{i}"
+
+    unique_players = [col[col.find("_") + 1:] for col in pivot_df.columns if "possession" in col]
+    for player in unique_players:
+        player_x_col = f"x in m_{player}"
+        player_y_col = f"y in m_{player}"
 
         # Calculate distance and replace x coordinate column with it
         pivot_df[player_x_col] = calculate_distance(pivot_df[player_x_col], pivot_df[player_y_col],
                                                     pivot_df["x in m_Ball"], pivot_df["y in m_Ball"])
 
-        pivot_df.rename(columns={player_x_col: f"distance_to_ball_Player{i}"}, inplace=True)
+        pivot_df.rename(columns={player_x_col: f"distance_to_ball_{player}"}, inplace=True)
         pivot_df.drop(columns=[player_y_col], inplace=True)
 
     pivot_df.drop(columns=["x in m_Ball", "y in m_Ball"], inplace=True)
-    pivot_df.dropna(inplace=True)
     return pivot_df
 
-def sample_retrieval(player_number, pivot_df, window_start, window_end):
+def sample_retrieval(player, pivot_df, window_start, window_end):
     """ Retrieves the sample values from the specified time window.
     
     Parameters:
-    player_number -- the index of the current player within the timestamp
+    player        -- the name of the current player within the timestamp
     pivot_df      -- the pivot transformed DataFrame
     window_start  -- the starting point of the window
     window_end    -- the ending point of the window
@@ -139,47 +143,56 @@ def sample_retrieval(player_number, pivot_df, window_start, window_end):
                             (pivot_df["formatted local time"] <= window_end)]
 
     df_len = len(df_timestamp)
-    if df_len < input_time_steps:
+
+    df_timestamp = df_timestamp[["speed in m/s_Ball", f"distance_to_ball_{player}"]].to_numpy()
+    label = pivot_df[pivot_df["formatted local time"] == window_end][f"possession_{player}"]
+    if (df_len < input_time_steps) or (np.isnan(df_timestamp).any() == True):
         usable_sample = "false"
 
-    df_timestamp = df_timestamp[["speed in m/s_Ball", f"distance_to_ball_Player{player_number}"]].to_numpy()
-    label = pivot_df[pivot_df["formatted local time"] == window_end][f"possession_Player{player_number}"]
     return df_timestamp, label, usable_sample
 
-def create_samples(timestamp_game, data_amount, pivot_df):
+def create_samples(timestamp_game, data_amount, pivot_df, timestamp_player_dict):
     """ Creates the complete samples for the train/val/test set.
     
     Parameters:
-    timestamp_game -- the DataFrame the pivot function should be performed on
-    data_amount    -- the amount of samples to be considered
-    pivot_df       -- the pivot transformed DataFrame
+    timestamp_game          -- the DataFrame the pivot function should be performed on
+    data_amount             -- the amount of samples to be considered
+    pivot_df                -- the pivot transformed DataFrame
+    timestamp_player_dict   -- the dictionary containing the players for each timestamp
 
     Returns:
-    tsd     -- the TimeseriesDataset containing the X and y tensors
-    ts_list -- the list containing the used timestamps
+    tsd           -- the TimeseriesDataset containing the X and y tensors
+    ts_list_total -- the list containing the used timestamps
     """
 
     timestamps = pd.to_datetime([tg.split("_")[0] for tg in timestamp_game]) # Get timestamps from timestamp_game combination for window calculations
     window_starts = timestamps - window_length_datetime # Pre-calculate start and end times for each window
 
-    X_list = []
-    y_list = []
-    ts_list = [] # List for saving used timestamps for being being able to measure prediction performance 
+    X_list_total = []
+    y_list_total = []
+    ts_list_total = [] # List for saving used timestamps for being being able to measure prediction performance 
 
     for window_start, window_end in tqdm(zip(window_starts[:data_amount], timestamps[:data_amount])):
-        for player_number in range(1, 15):
-            sample, label, usable_sample = sample_retrieval(player_number, pivot_df, window_start, window_end)
+        X_list_temporary = []
+        y_list_temporary = []
+        ts_list_temporary = [] # List for saving used timestamps for being being able to measure prediction performance
+        usable_sample = "true"
+        for player in timestamp_player_dict[pd.Timestamp(window_end)]:
+            sample, label, usable_sample = sample_retrieval(player, pivot_df, window_start, window_end)
             if usable_sample == "false":
                 break # Skip timestamp if not enough data is available
-            
-            ts_list.append(window_end)
-            X_list.append(sample)
-            y_list.append(label)
-        
+
+            ts_list_temporary.append(window_end)
+            X_list_temporary.append(sample)
+            y_list_temporary.append(label)
+        if usable_sample == "true":
+            X_list_total += X_list_temporary
+            y_list_total += y_list_temporary
+            ts_list_total += ts_list_temporary
 
     # Convert lists to numpy arrays
-    X = np.array(X_list)
-    y = np.array(y_list)
+    X = np.array(X_list_total)
+    y = np.array(y_list_total)
 
     X = X.transpose(0, 2, 1) # Transpose to have correct ordering for TST model 
 
@@ -188,7 +201,7 @@ def create_samples(timestamp_game, data_amount, pivot_df):
 
     tsd = TSDatasets(X_tensor, y_tensor)
 
-    return tsd, ts_list
+    return tsd, ts_list_total
 
 def objective(trial:optuna.Trial):
     """ Creates the search space for hyperparameter tuning and executes the tuning.
@@ -254,8 +267,8 @@ def objective(trial:optuna.Trial):
     return best_f1_score
 
 # Load data
-match_train_df = pd.read_csv(r"handball_sample\match_training.csv", sep=";", index_col=0)
-match_test_df = pd.read_csv(r"handball_sample\match_test.csv", sep=";", index_col=0)
+match_train_df = pd.read_csv(r"handball_sample\match_training_model.csv", sep=";", index_col=0)
+match_test_df = pd.read_csv(r"handball_sample\match_test_model.csv", sep=";", index_col=0)
 
 match_train_df["formatted local time"] = pd.to_datetime(match_train_df["formatted local time"])
 match_test_df["formatted local time"] = pd.to_datetime(match_test_df["formatted local time"])
@@ -272,8 +285,8 @@ train_timestamp_game, val_timestamp_game = train_test_split(timestamp_game_combi
 
 # Change DataFrame structure
 print("Pivoting DataFrames")
-pivot_df_train = pivot_df_prep(match_train_df)
-pivot_df_test = pivot_df_prep(match_test_df)
+pivot_df_train, ts_player_dict_train = pivot_df_prep(match_train_df)
+pivot_df_test, ts_player_dict_test = pivot_df_prep(match_test_df)
 
 print("Preparing DataFrames")
 pivot_df_train = var_prep(pivot_df_train)
@@ -281,9 +294,9 @@ pivot_df_test = var_prep(pivot_df_test)
 
 # Prepare train, val and test data
 print("Creating samples")
-train_ds, _ = create_samples(timestamp_game=train_timestamp_game, data_amount=10000, pivot_df=pivot_df_train)
-val_ds, _ = create_samples(timestamp_game=val_timestamp_game, data_amount=1000, pivot_df=pivot_df_train)
-test_ds, test_timestamps = create_samples(timestamp_game=test_timestamp_game, data_amount=1000, pivot_df=pivot_df_test)
+train_ds, _ = create_samples(timestamp_game=train_timestamp_game, data_amount=10000, pivot_df=pivot_df_train, grouped_dict = ts_player_dict_train)
+val_ds, _ = create_samples(timestamp_game=val_timestamp_game, data_amount=2000, pivot_df=pivot_df_train, grouped_dict = ts_player_dict_train)
+test_ds, test_timestamps = create_samples(timestamp_game=test_timestamp_game, data_amount=2000, pivot_df=pivot_df_test, grouped_dict = ts_player_dict_test)
 
 if tuning == "True":
     print("Starting Optuna study")
