@@ -6,6 +6,36 @@ import time_check_df
 
 preparation_type, game, stats = sys.argv[1], sys.argv[2], sys.argv[3]
 
+def calculate_movement_vars(df):
+    """ Calculates the speed, acceleration and direction of movement .
+    
+    Parameters:
+    df -- the DataFrame for which the variables should be calculated
+
+    Returns:
+    df -- the DataFrame containing the added movement variables
+    """
+
+    # Group by player to have correct calculation
+    df["delta_x"] = df.groupby("full name")["x in m"].diff()
+    df["delta_y"] = df.groupby("full name")["y in m"].diff()
+    
+    df["delta_time"] = df.groupby("full name")["formatted local time"].diff().dt.total_seconds()
+    
+    df["distance"] = np.sqrt(df["delta_x"]**2 + df["delta_y"]**2)
+    df["speed in m/s"] = round(df["distance"] / df["delta_time"], 3)
+    
+    df["delta_speed"] = df.groupby("full name")["speed in m/s"].diff()
+
+    df["direction of movement in deg"] = round(np.degrees(np.arctan2(df["delta_y"], df["delta_x"])), 3)
+    
+    # Set value to nan if time difference is not exactly 0.05, e.g. due to playing stoppage 
+    df.loc[df["delta_time"] != 0.05, ["speed in m/s", "acceleration in m/s2", "direction of movement in deg"]] = np.nan
+    
+    df.drop(columns=["delta_x", "delta_y", "delta_speed", "delta_time", "distance"], inplace=True)
+
+    return df
+
 offsets = {"FLEvsKIE": 500,  "ERLvsFLE": 300, "FLEvsEIS": 400, "FLEvsRNL": None, "GUMvsFLE": -1300, "FLEvsMEL": 350} # Offset values for tags, depend on comparison in time_check_df
 
 if stats == "True":
@@ -83,6 +113,8 @@ if preparation_type == "single":
     # Remove every player sitting on bench and every ball not in use
     match_full.drop(match_full[match_full["y in m"] < -10].index, inplace=True)
     
+    match_full = calculate_movement_vars(match_full) # Add movement variables
+
     if stats == "False":
         # Only use timestamps where exactly one ball and 12-14 players are present
         group_counts = match_full.groupby("formatted local time")["group name"].agg(ball_count=lambda x: (x == "Ball").sum(), player_count=lambda x: (x != "Ball").sum()).reset_index()
