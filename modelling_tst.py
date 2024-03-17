@@ -63,7 +63,8 @@ def pivot_df_prep(match_df):
 
     combined_df = pd.concat([ball_df, players_df])
 
-    pivot_df = combined_df.pivot_table(index="formatted local time", columns="Player", values=["x in m", "y in m", "speed in m/s", "possession"])
+    pivot_df = combined_df.pivot_table(index="formatted local time", columns="Player", values=["x in m", "y in m", "speed in m/s", "acceleration in m/s2",
+                                                                                               "direction of movement in deg", "possession"])
 
     # Flatten multi-index columns
     pivot_df.columns = ["_".join(col).strip() for col in pivot_df.columns.values]
@@ -72,9 +73,10 @@ def pivot_df_prep(match_df):
     players = sorted(set([col[col.find("_") + 1:] for col in pivot_df.columns if not "Ball" in col]))
 
     # Reorder columns to group x, y and possession for each player
-    ordered_columns = ["x in m_Ball", "y in m_Ball", "speed in m/s_Ball"]
+    ordered_columns = ["x in m_Ball", "y in m_Ball", "speed in m/s_Ball", "acceleration in m/s2_Ball", "direction of movement in deg_Ball"]
     for player in players:
-        ordered_columns.extend([f"x in m_{player}", f"y in m_{player}", f"possession_{player}"])
+        ordered_columns.extend([f"x in m_{player}", f"y in m_{player}", f"possession_{player}", f"speed in m/s_{player}", f"acceleration in m/s2_{player}",
+                                f"direction of movement in deg_{player}"])
 
     pivot_df = pivot_df[ordered_columns]
     pivot_df.reset_index(inplace=True)
@@ -114,11 +116,16 @@ def var_prep(pivot_df):
         player_y_col = f"y in m_{player}"
 
         # Calculate distance and replace x coordinate column with it
-        pivot_df[player_x_col] = calculate_distance(pivot_df[player_x_col], pivot_df[player_y_col],
+        pivot_df[f"distance_to_ball_{player}"] = calculate_distance(pivot_df[player_x_col], pivot_df[player_y_col],
                                                     pivot_df["x in m_Ball"], pivot_df["y in m_Ball"])
+        
+        pivot_df[f"difference_in_speed_{player}"] = pivot_df[f"speed in m/s_{player}"] - pivot_df["speed in m/s_Ball"]
 
-        pivot_df.rename(columns={player_x_col: f"distance_to_ball_{player}"}, inplace=True)
-        pivot_df.drop(columns=[player_y_col], inplace=True)
+        pivot_df[f"difference_acceleration_{player}"] = pivot_df[f"acceleration in m/s2_{player}"] - pivot_df["acceleration in m/s2_Ball"]
+
+        pivot_df[f"difference_direction_{player}"] = round((pivot_df[f"direction of movement in deg_{player}"] - pivot_df["direction of movement in deg_Ball"] + 180) % 360 - 180, 3)
+
+        pivot_df.drop(columns=[player_x_col, player_y_col], inplace=True)
 
     pivot_df.drop(columns=["x in m_Ball", "y in m_Ball"], inplace=True)
     return pivot_df
