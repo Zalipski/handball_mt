@@ -213,15 +213,14 @@ match_test_df["formatted local time"] = pd.to_datetime(match_test_df["formatted 
 visible_df_train = match_train_df[(match_train_df["tag text"] != "not_visible")]
 visible_df_test = match_test_df[(match_test_df["tag text"] != "not_visible")]
 
-train_df, val_df = train_test_split(visible_df_train, test_size=0.2, random_state=42)
+# Prepare DataFrames
+train_val_df_prep = df_prep(visible_df_train)
+test_df_prep = df_prep(visible_df_test)
+
+train_df_prep, val_df_prep = train_test_split(train_val_df_prep, test_size=0.2, random_state=42)
 
 training_vars = ["distance_to_ball", "speed in m/s_ball", "speed in m/s_player"]
 binned_training_vars = ["distance_to_ball_binned", "speed_ball_binned", "speed_player_binned"]
-
-# Prepare DataFrames
-train_df_prep = df_prep(train_df)
-val_df_prep = df_prep(val_df)
-test_df_prep = df_prep(visible_df_test)
 
 if tuning == "True":
     start_time_tuning = datetime.now()
