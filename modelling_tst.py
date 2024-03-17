@@ -8,7 +8,6 @@ from sklearn.model_selection import train_test_split
 import torch
 from torch.utils.data import DataLoader
 from tsai.all import *
-from fastai.metrics import Precision, Recall, F1Score, RocAucBinary, BalancedAccuracy
 import optuna
 from optuna.integration import FastAIPruningCallback
 
