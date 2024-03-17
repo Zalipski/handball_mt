@@ -11,7 +11,7 @@ from tsai.all import *
 import optuna
 from optuna.integration import FastAIPruningCallback
 
-window_length_ms, include_tuning = int(sys.argv[1]), str(sys.argv[2])
+window_length_ms, tuning = int(sys.argv[1]), str(sys.argv[2])
 
 window_length_datetime = timedelta(milliseconds=window_length_ms)
 input_time_steps = (window_length_ms / 50) + 1 # Amount of input timesteps for model, depending on window length
@@ -285,7 +285,7 @@ train_ds, _ = create_samples(timestamp_game=train_timestamp_game, data_amount=10
 val_ds, _ = create_samples(timestamp_game=val_timestamp_game, data_amount=1000, pivot_df=pivot_df_train)
 test_ds, test_timestamps = create_samples(timestamp_game=test_timestamp_game, data_amount=1000, pivot_df=pivot_df_test)
 
-if include_tuning == "True":
+if tuning == "True":
     print("Starting Optuna study")
     study = optuna.create_study(direction="maximize") # Minimize validation loss
     study.optimize(objective, n_trials=100)
