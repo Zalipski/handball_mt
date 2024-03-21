@@ -26,11 +26,16 @@ def calculate_movement_vars(df):
     df["speed in m/s"] = round(df["distance"] / df["delta_time"], 3)
     
     df["delta_speed"] = df.groupby("full name")["speed in m/s"].diff()
+    df['acceleration in m/s2'] = df['delta_speed'] / df['delta_time']
 
     df["direction of movement in deg"] = round(np.degrees(np.arctan2(df["delta_y"], df["delta_x"])), 3)
+
+    df['angle rad'] = np.deg2rad(df['direction of movement in deg'])
+    df['sin angle'] = np.sin(df['angle rad'])
+    df['cos angle'] = np.cos(df['angle rad'])
     
     # Set value to nan if time difference is not exactly 0.05, e.g. due to playing stoppage 
-    df.loc[df["delta_time"] != 0.05, ["speed in m/s", "acceleration in m/s2", "direction of movement in deg"]] = np.nan
+    df.loc[df["delta_time"] != 0.05, ["speed in m/s", "acceleration in m/s2", "sin angle", "cos angle"]] = np.nan
     
     df.drop(columns=["delta_x", "delta_y", "delta_speed", "delta_time", "distance"], inplace=True)
 
@@ -114,6 +119,8 @@ if preparation_type == "single":
     match_full.drop(match_full[match_full["y in m"] < -10].index, inplace=True)
     
     match_full = calculate_movement_vars(match_full) # Add movement variables
+
+    match_full = match_full.dropna(subset = ["x in m", "y in m", "speed in m/s", "acceleration in m/s2", "direction of movement in deg"], axis = 0)
 
     if stats == "False":
         # Only use timestamps where exactly one ball and 12-14 players are present
