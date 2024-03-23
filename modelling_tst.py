@@ -302,17 +302,34 @@ aligned_df_train, ts_player_dict_train = align_df_prep(match_train_df)
 aligned_df_val, ts_player_dict_val = align_df_prep(match_val_df)
 aligned_df_test, ts_player_dict_test = align_df_prep(match_test_df)
 
-# Get unique combinations of timestamp and game
-timestamp_game_combinations_train = visible_df_train["timestamp_game"].unique()
-test_timestamp_game = visible_df_test["timestamp_game"].unique()
+# Columns to be scaled
+columns_to_scale = ['x in m_player', 'y in m_player',
+       'speed in m/s_player', 'acceleration in m/s2_player',
+       'sin angle_player', "cos angle_player",
+       'x in m_ball', 'y in m_ball', 'speed in m/s_ball',
+       'acceleration in m/s2_ball',
+       'sin angle_ball', "cos angle_ball",
+       'difference distance', 'difference speed', 'difference acceleration',
+       'difference sin angle', "difference cos angle"]
 
-train_timestamp_game, val_timestamp_game = train_test_split(timestamp_game_combinations_train, test_size=0.2, random_state=42)
+# Columns not to scale
+columns_not_to_scale = [col for col in aligned_df_train.columns if col not in columns_to_scale]
+# Fit the scaler on the training data (only on columns to scale)
+scaler = StandardScaler().fit(aligned_df_train[columns_to_scale])
+# Transform the data (only scale the columns that need scaling)
+df_train_scaled = pd.DataFrame(scaler.transform(aligned_df_train[columns_to_scale]), columns=columns_to_scale, index=aligned_df_train.index)
+df_val_scaled = pd.DataFrame(scaler.transform(aligned_df_val[columns_to_scale]), columns=columns_to_scale, index=aligned_df_val.index)
+df_test_scaled = pd.DataFrame(scaler.transform(aligned_df_test[columns_to_scale]), columns=columns_to_scale, index=aligned_df_test.index)
+# Concatenate the scaled columns back with the columns that were not scaled
+match_train_df_scaled = pd.concat([df_train_scaled, aligned_df_train[columns_not_to_scale]], axis=1)
+match_val_df_scaled = pd.concat([df_val_scaled, aligned_df_val[columns_not_to_scale]], axis=1)
+match_test_df_scaled = pd.concat([df_test_scaled, aligned_df_test[columns_not_to_scale]], axis=1)
 
 # Change DataFrame structure
 print("Pivoting DataFrames")
-pivot_df_train = pivot_df_prep(aligned_df_train)
-pivot_df_val = pivot_df_prep(aligned_df_val)
-pivot_df_test = pivot_df_prep(aligned_df_test)
+pivot_df_train = pivot_df_prep(match_train_df_scaled)
+pivot_df_val = pivot_df_prep(match_val_df_scaled)
+pivot_df_test = pivot_df_prep(match_test_df_scaled)
 
 # Only use visible timestamps
 visible_df_train = match_train_df[(match_train_df["tag text"] != "not_visible")]
