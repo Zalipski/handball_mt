@@ -5,6 +5,7 @@ from tqdm import tqdm
 import random
 import os
 from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
 import torch
 from torch.utils.data import DataLoader
 from tsai.all import *
@@ -38,33 +39,86 @@ def set_every_seed(seed=42):
 
 set_every_seed()
 
-def pivot_df_prep(match_df):
-    """ Uses the pivot function to have all rows per timestamp condensed into one row.
+def align_df_prep(match_df):
+    """ Aligns the data by inclduing the ball values in each player row and calculates difference variables.
     
     Parameters:
     match_df -- the DataFrame containing the match data
 
     Returns:
-    pivot_df              -- the match DataFrame after the pivot transformation
+    aligned_data          -- the match DataFrame after the alignment and difference variable addition 
     timestamp_player_dict -- the dictionary containing the players for each timestamp
     """
-
-    match_df["formatted local time"] = pd.to_datetime(match_df["formatted local time"])
-
-    # Separate DataFrame for ball and players to correctly create numbers for players, otherwise number of ball row index is skipped
-    ball_df = match_df[match_df["full name"].str.contains("ball", case=False)].copy()
-    players_df = match_df[~match_df["full name"].str.contains("ball", case=False)].copy()
+    
+    ball_df = match_df[match_df["full name"].str.contains("ball")]
+    players_df = match_df[~match_df["full name"].str.contains("ball")]
 
     # Create dict with player names playing as dict value for corresponding timestamp as dict key
     timestamp_player_dict = players_df.groupby("formatted local time")["full name"].apply(list).to_dict()
 
-    players_df["Player"] = players_df["full name"]
-    ball_df["Player"] = "Ball"
+    players_df = players_df.copy()
+    ball_df = ball_df.copy()
 
-    combined_df = pd.concat([ball_df, players_df])
+    players_df["name"] = players_df["full name"]
+    ball_df["name"] = "Ball"
 
-    pivot_df = combined_df.pivot_table(index="formatted local time", columns="Player", values=["x in m", "y in m", "speed in m/s", "acceleration in m/s2",
-                                                                                               "direction of movement in deg", "possession"])
+    merge_vars = ["formatted local time", "name", "x in m", "y in m", "speed in m/s", "acceleration in m/s2", "direction of movement in deg", "sin angle", "cos angle"]
+
+    aligned_data = players_df[["formatted local time", "name", "x in m", "y in m", "speed in m/s", "acceleration in m/s2",
+                               "direction of movement in deg", "sin angle", "cos angle", "tag text", "possession"]].merge(ball_df[merge_vars], 
+                                on="formatted local time", how="left", suffixes=("_player", "_ball"))
+    
+    aligned_data["difference distance"] = np.sqrt(
+        (aligned_data["x in m_player"] - aligned_data["x in m_ball"]) ** 2 +
+        (aligned_data["y in m_player"] - aligned_data["y in m_ball"]) ** 2
+    )
+
+    aligned_data["difference speed"] = aligned_data["speed in m/s_player"] - aligned_data["speed in m/s_ball"]
+
+    aligned_data["difference acceleration"] = aligned_data["acceleration in m/s2_player"] - aligned_data["acceleration in m/s2_ball"]
+
+    aligned_data["difference direction"] = round((aligned_data["direction of movement in deg_player"] - aligned_data["direction of movement in deg_ball"] + 180) % 360 - 180, 3)
+
+    aligned_data['difference angle rad'] = np.deg2rad(aligned_data['difference direction'])
+
+    # Transform angles into sine and cosine components
+    aligned_data['difference sin angle'] = np.sin(aligned_data['difference angle rad'])
+    aligned_data['difference cos angle'] = np.cos(aligned_data['difference angle rad'])
+
+    aligned_data.drop(columns=["difference angle rad"], inplace=True)
+
+    return aligned_data, timestamp_player_dict
+
+def pivot_df_prep(aligned_df):
+    """ Uses the pivot function to have all rows per timestamp condensed into one row.
+    
+    Parameters:
+    aligned_df -- the aligned DataFrame
+
+    Returns:
+    pivot_df -- the match DataFrame after the pivot transformation
+    """
+
+    diff_cols = ["formatted local time", "tag text", "possession", "difference distance", "difference speed",
+                 "difference acceleration", "difference sin angle", "difference cos angle"]
+
+    # Separate modified player data
+    player_data_columns = [col for col in aligned_df.columns if col.endswith("_player") or col in diff_cols]
+    player_data = aligned_df[player_data_columns].copy()
+    # Rename columns back to original
+    player_data.columns = player_data.columns.str.replace("_player", "")
+
+    ball_data_columns = [col for col in aligned_df.columns if col.endswith("_ball") or col in diff_cols]
+    ball_data = aligned_df[ball_data_columns].drop_duplicates(subset=['formatted local time'])
+    ball_data.columns = ball_data.columns.str.replace("_ball", "")
+
+    reconstructed_df = pd.concat([player_data, ball_data]).sort_values(by="formatted local time")
+    reconstructed_df.sort_values(by="formatted local time", inplace=True)
+    reconstructed_df.reset_index(drop=True, inplace=True)
+
+    pivot_df = reconstructed_df.pivot_table(index="formatted local time", columns="name", values=["x in m", "y in m", "speed in m/s", "acceleration in m/s2", "sin angle", "cos angle",
+                                                                                                  "difference distance", "difference speed", "difference acceleration",
+                                                                                                  "difference sin angle", "difference cos angle", "possession"])
 
     # Flatten multi-index columns
     pivot_df.columns = ["_".join(col).strip() for col in pivot_df.columns.values]
@@ -72,62 +126,16 @@ def pivot_df_prep(match_df):
     # Extract unique player names and sort them
     players = sorted(set([col[col.find("_") + 1:] for col in pivot_df.columns if not "Ball" in col]))
 
-    # Reorder columns to group x, y and possession for each player
-    ordered_columns = ["x in m_Ball", "y in m_Ball", "speed in m/s_Ball", "acceleration in m/s2_Ball", "direction of movement in deg_Ball"]
+    # Reorder columns to group corresponding variablers for each player
+    ordered_columns = ["x in m_Ball", "y in m_Ball", "speed in m/s_Ball", "acceleration in m/s2_Ball", "sin angle_Ball", "cos angle_Ball"]
     for player in players:
         ordered_columns.extend([f"x in m_{player}", f"y in m_{player}", f"possession_{player}", f"speed in m/s_{player}", f"acceleration in m/s2_{player}",
-                                f"direction of movement in deg_{player}"])
+                                f"sin angle_{player}", f"cos angle_{player}", f"difference distance_{player}", f"difference speed_{player}",
+                                f"difference acceleration_{player}", f"difference sin angle_{player}", f"difference cos angle_{player}"])
 
     pivot_df = pivot_df[ordered_columns]
     pivot_df.reset_index(inplace=True)
-
-    return pivot_df, timestamp_player_dict
-
-def calculate_distance(x_player, y_player, x_ball, y_ball):
-    """ Helper function to calculate the euclidean distance between the ball and the player.
     
-    Parameters:
-    x_player -- the x coordinate of the player
-    y_player -- the y coordinate of the player
-    x_ball -- the x coordinate of the ball
-    y_ball -- the y coordinate of the ball
-
-    Returns:
-    euclidean_distance -- the euclidean distance between the player and the ball
-    """
-
-    euclidean_distance = np.sqrt((x_ball - x_player) ** 2 + (y_ball - y_player) ** 2)
-
-    return euclidean_distance
-
-def var_prep(pivot_df):
-    """ Updates the DataFrame by calculating the distance between every player and the ball.
-    
-    Parameters:
-    pivot_df -- the pivot transformed DataFrame to be updated
-
-    Returns:
-    pivot_df -- the updated pivot_df
-    """
-
-    unique_players = [col[col.find("_") + 1:] for col in pivot_df.columns if "possession" in col]
-    for player in unique_players:
-        player_x_col = f"x in m_{player}"
-        player_y_col = f"y in m_{player}"
-
-        # Calculate distance and replace x coordinate column with it
-        pivot_df[f"distance_to_ball_{player}"] = calculate_distance(pivot_df[player_x_col], pivot_df[player_y_col],
-                                                    pivot_df["x in m_Ball"], pivot_df["y in m_Ball"])
-        
-        pivot_df[f"difference_in_speed_{player}"] = pivot_df[f"speed in m/s_{player}"] - pivot_df["speed in m/s_Ball"]
-
-        pivot_df[f"difference_acceleration_{player}"] = pivot_df[f"acceleration in m/s2_{player}"] - pivot_df["acceleration in m/s2_Ball"]
-
-        pivot_df[f"difference_direction_{player}"] = round((pivot_df[f"direction of movement in deg_{player}"] - pivot_df["direction of movement in deg_Ball"] + 180) % 360 - 180, 3)
-
-        pivot_df.drop(columns=[player_x_col, player_y_col], inplace=True)
-
-    pivot_df.drop(columns=["x in m_Ball", "y in m_Ball"], inplace=True)
     return pivot_df
 
 def sample_retrieval(player, pivot_df, window_start, window_end):
@@ -151,7 +159,11 @@ def sample_retrieval(player, pivot_df, window_start, window_end):
 
     df_len = len(df_timestamp)
 
-    df_timestamp = df_timestamp[["speed in m/s_Ball", f"distance_to_ball_{player}"]].to_numpy()
+    df_timestamp = df_timestamp[[f"difference distance_{player}", "x in m_Ball", "y in m_Ball", f"x in m_{player}", f"y in m_{player}",
+                                 "speed in m/s_Ball", f"speed in m/s_{player}", f"difference speed_{player}",
+                                 "acceleration in m/s2_Ball", f"acceleration in m/s2_{player}", f"difference acceleration_{player}",
+                                 "sin angle_Ball", "cos angle_Ball", f"sin angle_{player}", f"cos angle_{player}",
+                                 f"difference sin angle_{player}", f"difference cos angle_{player}"]].to_numpy()
     label = pivot_df[pivot_df["formatted local time"] == window_end][f"possession_{player}"]
     if (df_len < input_time_steps) or (np.isnan(df_timestamp).any() == True):
         usable_sample = "false"
@@ -172,7 +184,7 @@ def create_samples(timestamp_game, data_amount, pivot_df, timestamp_player_dict)
     ts_list_total -- the list containing the used timestamps
     """
 
-    timestamps = pd.to_datetime([tg.split("_")[0] for tg in timestamp_game]) # Get timestamps from timestamp_game combination for window calculations
+    timestamps = pd.to_datetime(timestamp_game) # Get timestamps from timestamp_game combination for window calculations
     window_starts = timestamps - window_length_datetime # Pre-calculate start and end times for each window
 
     X_list_total = []
@@ -182,7 +194,7 @@ def create_samples(timestamp_game, data_amount, pivot_df, timestamp_player_dict)
     for window_start, window_end in tqdm(zip(window_starts[:data_amount], timestamps[:data_amount])):
         X_list_temporary = []
         y_list_temporary = []
-        ts_list_temporary = [] # List for saving used timestamps for being being able to measure prediction performance
+        ts_list_temporary = [] # List for saving used timestamps for being able to measure prediction performance
         usable_sample = "true"
         for player in timestamp_player_dict[pd.Timestamp(window_end)]:
             sample, label, usable_sample = sample_retrieval(player, pivot_df, window_start, window_end)
@@ -274,15 +286,21 @@ def objective(trial:optuna.Trial):
     return best_f1_score
 
 # Load data
-match_train_df = pd.read_csv(r"handball_sample\match_training_model.csv", sep=";", index_col=0)
+match_train_val_df = pd.read_csv(r"handball_sample\match_training_model.csv", sep=";", index_col=0)
 match_test_df = pd.read_csv(r"handball_sample\match_test_model.csv", sep=";", index_col=0)
 
-match_train_df["formatted local time"] = pd.to_datetime(match_train_df["formatted local time"])
+match_train_val_df["formatted local time"] = pd.to_datetime(match_train_val_df["formatted local time"])
 match_test_df["formatted local time"] = pd.to_datetime(match_test_df["formatted local time"])
 
-# Only use visible timestamps
-visible_df_train = match_train_df[(match_train_df["tag text"] != "not_visible")]
-visible_df_test = match_test_df[(match_test_df["tag text"] != "not_visible")]
+match_train_df = match_train_val_df[match_train_val_df["game"].isin(["FLEvsKIE", "ERLvsFLE", "FLEvsEIS"])]
+match_val_df = match_train_val_df[match_train_val_df["game"].isin(["GUMvsFLE"])]
+
+match_test_df.reset_index(inplace=True)
+
+print("Aligning DataFrames")
+aligned_df_train, ts_player_dict_train = align_df_prep(match_train_df)
+aligned_df_val, ts_player_dict_val = align_df_prep(match_val_df)
+aligned_df_test, ts_player_dict_test = align_df_prep(match_test_df)
 
 # Get unique combinations of timestamp and game
 timestamp_game_combinations_train = visible_df_train["timestamp_game"].unique()
@@ -292,18 +310,29 @@ train_timestamp_game, val_timestamp_game = train_test_split(timestamp_game_combi
 
 # Change DataFrame structure
 print("Pivoting DataFrames")
-pivot_df_train, ts_player_dict_train = pivot_df_prep(match_train_df)
-pivot_df_test, ts_player_dict_test = pivot_df_prep(match_test_df)
+pivot_df_train = pivot_df_prep(aligned_df_train)
+pivot_df_val = pivot_df_prep(aligned_df_val)
+pivot_df_test = pivot_df_prep(aligned_df_test)
 
-print("Preparing DataFrames")
-pivot_df_train = var_prep(pivot_df_train)
-pivot_df_test = var_prep(pivot_df_test)
+# Only use visible timestamps
+visible_df_train = match_train_df[(match_train_df["tag text"] != "not_visible")]
+visible_df_val = match_val_df[(match_val_df["tag text"] != "not_visible")]
+visible_df_test = match_test_df[(match_test_df["tag text"] != "not_visible")]
+
+# Get unique timestamps
+timestamps_train = visible_df_train["formatted local time"].unique()
+timestamps_val = visible_df_val["formatted local time"].unique()
+timestamps_test = visible_df_test["formatted local time"].unique()
+
+random.seed(42)
+random.shuffle(timestamps_train)
+random.shuffle(timestamps_val)
 
 # Prepare train, val and test data
 print("Creating samples")
-train_ds, _ = create_samples(timestamp_game=train_timestamp_game, data_amount=10000, pivot_df=pivot_df_train, grouped_dict = ts_player_dict_train)
-val_ds, _ = create_samples(timestamp_game=val_timestamp_game, data_amount=2000, pivot_df=pivot_df_train, grouped_dict = ts_player_dict_train)
-test_ds, test_timestamps = create_samples(timestamp_game=test_timestamp_game, data_amount=2000, pivot_df=pivot_df_test, grouped_dict = ts_player_dict_test)
+train_ds, _ = create_samples(timestamp_game=timestamps_train, data_amount=20000, pivot_df=pivot_df_train, timestamp_player_dict = ts_player_dict_train)
+val_ds, _ = create_samples(timestamp_game=timestamps_val, data_amount=7000, pivot_df=pivot_df_val, timestamp_player_dict = ts_player_dict_val)
+test_ds, test_timestamps = create_samples(timestamp_game=timestamps_test, data_amount=2000, pivot_df=pivot_df_test, timestamp_player_dict = ts_player_dict_test)
 
 if tuning == "True":
     print("Starting Optuna study")
