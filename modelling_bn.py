@@ -46,13 +46,20 @@ def df_prep(match_df):
     ball_data = match_df[match_df["full name"].str.contains("ball")]
     player_data = match_df[~match_df["full name"].str.contains("ball")]
 
-    aligned_data = player_data.merge(ball_data[["formatted local time", "x in m", "y in m", "speed in m/s"]], 
+    aligned_data = player_data.merge(ball_data[["formatted local time", "x in m", "y in m", "speed in m/s", "acceleration in m/s2", "direction of movement in deg"]], 
                                     on="formatted local time", how="left", suffixes=("_player", "_ball"))
     
-    aligned_data["distance_to_ball"] = np.sqrt(
+    aligned_data["difference distance"] = np.sqrt(
         (aligned_data["x in m_player"] - aligned_data["x in m_ball"]) ** 2 +
         (aligned_data["y in m_player"] - aligned_data["y in m_ball"]) ** 2
     )
+
+    aligned_data["difference speed"] = aligned_data["speed in m/s_player"] - aligned_data["speed in m/s_ball"]
+
+    aligned_data["difference acceleration"] = aligned_data["acceleration in m/s2_player"] - aligned_data["acceleration in m/s2_ball"]
+
+    aligned_data["difference direction"] = round((aligned_data["direction of movement in deg_player"] - aligned_data["direction of movement in deg_ball"] + 180) % 360 - 180, 3)
+
     return aligned_data
 
 def discretize_data(discretization_vars, binned_vars, aligned_data, discretization_params):
@@ -174,8 +181,8 @@ def evaluate_model(model, data):
     """ Calculates the performance scores based on the used model and data.
     
     Parameters:
-    model            -- the trained model
-    data             -- the data used for the model training
+    model -- the trained model
+    data  -- the data used for the model training
 
     Returns:
     f1            -- the F1-score
@@ -217,10 +224,12 @@ visible_df_test = match_test_df[(match_test_df["tag text"] != "not_visible")]
 train_val_df_prep = df_prep(visible_df_train)
 test_df_prep = df_prep(visible_df_test)
 
-train_df_prep, val_df_prep = train_test_split(train_val_df_prep, test_size=0.2, random_state=42)
-
-training_vars = ["distance_to_ball", "speed in m/s_ball", "speed in m/s_player"]
-binned_training_vars = ["distance_to_ball_binned", "speed_ball_binned", "speed_player_binned"]
+training_vars = ["difference distance", "x in m_player", "x in m_ball", "y in m_player", "y in m_ball", "speed in m/s_ball", "speed in m/s_player", "acceleration in m/s2_ball", "acceleration in m/s2_player",
+                 "direction of movement in deg_ball", "direction of movement in deg_player",
+                 "difference speed", "difference acceleration", "difference direction"]
+binned_training_vars = ["difference distance", "speed_ball_binned", "speed_player_binned", "acceleration_ball_binned", "acceleration_player_binned",
+                        "direction_ball_binned", "direction_player_binned",
+                        "difference speed_binned", "difference acceleration_binned", "difference direction_binned"]
 
 if tuning == "True":
     start_time_tuning = datetime.now()
