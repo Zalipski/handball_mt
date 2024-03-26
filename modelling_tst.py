@@ -232,23 +232,22 @@ def objective(trial:optuna.Trial):
     best_valid_loss -- the best validation loss value
     """
 
-    number_of_epochs = 10
-    early_stopping = True # Boolean stating wether early stopping should be used during tuning
+    number_of_epochs = 20
 
     # Search space
     learning_rate = trial.suggest_float("learning_rate", 1e-5, 1e-2, log=True)
-    batch_size = trial.suggest_categorical("batch_size", [16, 32, 64])
-    dropout = trial.suggest_float("dropout", 0.0, 0.3, step=0.1)
-    fc_dropout = trial.suggest_float("fc_dropout", 0.0, 0.8, step=0.1)
-    n_layers = trial.suggest_categorical("n_layers", [2, 3, 4, 5, 6, 7, 8])
-    d_model = trial.suggest_categorical("d_model", [128, 256, 512, 1024])
-    n_heads = trial.suggest_categorical("n_heads", [2, 8, 10, 12, 14, 16])
-    d_k = trial.suggest_categorical("d_k", [8, 16, 32, 64, 128, 256, 512])
-    d_v = trial.suggest_categorical("d_v", [8, 16, 32, 64, 128, 256, 512])
-    d_ff = trial.suggest_categorical("d_ff", [256, 512, 1024, 2048, 4096])
+    batch_size = trial.suggest_categorical("batch_size", [32, 64])
+    dropout = trial.suggest_float("dropout", 0.0, 0.4, step=0.1)
+    fc_dropout = trial.suggest_float("fc_dropout", 0.0, 0.8, step=0.4)
+    n_layers = trial.suggest_categorical("n_layers", [2, 8])
+    d_model = trial.suggest_categorical("d_model", [128, 512, 1024])
+    n_heads = trial.suggest_categorical("n_heads", [8, 16])
+    d_k = trial.suggest_categorical("d_k", [16, 64, 256, 512])
+    d_v = trial.suggest_categorical("d_v", [16, 64, 256, 512])
+    d_ff = trial.suggest_categorical("d_ff", [128, 512, 1024])
 
     # Give positive class more weight
-    num_class0 = 13
+    num_class0 = 12.5
     num_class1 = 1
     total = num_class0 + num_class1
     weight_class0 = total / (2.0 * num_class0)
@@ -258,32 +257,32 @@ def objective(trial:optuna.Trial):
     dls = TSDataLoaders.from_dsets(train_ds, val_ds, bs=batch_size, tfms=[None, TSClassification()], num_workers=0)
     model = TST(c_in=dls.vars, c_out=dls.c, seq_len=dls.len, n_layers=n_layers, d_model=d_model, n_heads=n_heads, d_k=d_k, d_v=d_v, d_ff=d_ff, dropout=dropout, fc_dropout=fc_dropout)
     learn = Learner(dls, model, loss_func=nn.BCEWithLogitsLoss(pos_weight=class_weights[1]),
-                    metrics=[F1ScoreMulti(), RocAucMulti(), PrecisionMulti(), RecallMulti()], cbs=FastAIPruningCallback(trial, monitor="valid_loss"))
+                    metrics=[F1ScoreMulti(), RocAucMulti(), PrecisionMulti(), RecallMulti()])
     
-    if early_stopping == False:
-        # with ContextManagers([learn.no_logging(), learn.no_bar()]): # Prevents printing anything during training
-        learn.fit_one_cycle(number_of_epochs, lr_max=learning_rate)
-    else:
-        best_f1_score = 0
-        epochs_since_improvement = 0
-        patience = 5
-        delta = 0.05
+    best_f1_score = 0
+    epochs_since_improvement = 0
+    patience = 5
+    delta = 0.03
 
-        for _ in range(number_of_epochs):
-            #with ContextManagers([learn.no_logging(), learn.no_bar()]):
-            learn.fit_one_cycle(1, lr_max = learning_rate)
-            current_f1_score = learn.recorder.values[-1][2]
+    for epoch in range(number_of_epochs):
+        print("Epoch: ", epoch)
+        with ContextManagers([learn.no_logging(), learn.no_bar()]):
+            learn.fit_one_cycle(1, lr_max=learning_rate)
 
-            if best_f1_score - current_f1_score > delta:
-                best_f1_score = current_f1_score
-                epochs_since_improvement = 0
-            else:
-                epochs_since_improvement += 1
+        current_f1_score = learn.recorder.values[-1][2]
+        trial.report(current_f1_score, epoch)
+        
+        if current_f1_score > best_f1_score + delta:
+            best_f1_score = current_f1_score
+            epochs_since_improvement = 0
+        else:
+            epochs_since_improvement += 1
 
-            if epochs_since_improvement >= patience:
-                raise optuna.exceptions.TrialPruned()  # Prune trial if patience is exceeded and not enough improvement has been made
+        if epochs_since_improvement >= patience:
+            print("Early stopping")
+            break
 
-    return best_f1_score
+    return current_f1_score
 
 # Load data
 match_train_val_df = pd.read_csv(r"handball_sample\match_training_model.csv", sep=";", index_col=0)
