@@ -11,6 +11,7 @@ from torch.utils.data import DataLoader
 from tsai.all import *
 import optuna
 from optuna.integration import FastAIPruningCallback
+import pickle
 
 window_length_ms, tuning = int(sys.argv[1]), str(sys.argv[2])
 
@@ -79,11 +80,11 @@ def align_df_prep(match_df):
 
     aligned_data["difference direction"] = round((aligned_data["direction of movement in deg_player"] - aligned_data["direction of movement in deg_ball"] + 180) % 360 - 180, 3)
 
-    aligned_data['difference angle rad'] = np.deg2rad(aligned_data['difference direction'])
+    aligned_data["difference angle rad"] = np.deg2rad(aligned_data["difference direction"])
 
     # Transform angles into sine and cosine components
-    aligned_data['difference sin angle'] = np.sin(aligned_data['difference angle rad'])
-    aligned_data['difference cos angle'] = np.cos(aligned_data['difference angle rad'])
+    aligned_data["difference sin angle"] = np.sin(aligned_data["difference angle rad"])
+    aligned_data["difference cos angle"] = np.cos(aligned_data["difference angle rad"])
 
     aligned_data.drop(columns=["difference angle rad"], inplace=True)
 
@@ -109,7 +110,7 @@ def pivot_df_prep(aligned_df):
     player_data.columns = player_data.columns.str.replace("_player", "")
 
     ball_data_columns = [col for col in aligned_df.columns if col.endswith("_ball") or col in diff_cols]
-    ball_data = aligned_df[ball_data_columns].drop_duplicates(subset=['formatted local time'])
+    ball_data = aligned_df[ball_data_columns].drop_duplicates(subset=["formatted local time"])
     ball_data.columns = ball_data.columns.str.replace("_ball", "")
 
     reconstructed_df = pd.concat([player_data, ball_data]).sort_values(by="formatted local time")
@@ -302,14 +303,17 @@ aligned_df_val, ts_player_dict_val = align_df_prep(match_val_df)
 aligned_df_test, ts_player_dict_test = align_df_prep(match_test_df)
 
 # Columns to be scaled
-columns_to_scale = ['x in m_player', 'y in m_player',
-       'speed in m/s_player', 'acceleration in m/s2_player',
-       'sin angle_player', "cos angle_player",
-       'x in m_ball', 'y in m_ball', 'speed in m/s_ball',
-       'acceleration in m/s2_ball',
-       'sin angle_ball', "cos angle_ball",
-       'difference distance', 'difference speed', 'difference acceleration',
-       'difference sin angle', "difference cos angle"]
+columns_to_scale = [# Player
+                    "x in m_player", "y in m_player",
+                    "speed in m/s_player", "acceleration in m/s2_player",
+                    "sin angle_player", "cos angle_player",
+                    # Ball
+                    "x in m_ball", "y in m_ball",
+                    "speed in m/s_ball", "acceleration in m/s2_ball",
+                    "sin angle_ball", "cos angle_ball",
+                    # Differences
+                    "difference distance", "difference speed", "difference acceleration",
+                    "difference sin angle", "difference cos angle"]
 
 # Columns not to scale
 columns_not_to_scale = [col for col in aligned_df_train.columns if col not in columns_to_scale]
