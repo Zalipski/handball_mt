@@ -353,8 +353,18 @@ test_ds, test_timestamps = create_samples(timestamp_game=timestamps_test, data_a
 
 if tuning == "True":
     print("Starting Optuna study")
-    study = optuna.create_study(direction="maximize") # Minimize validation loss
-    study.optimize(objective, n_trials=100)
+    
+    # Code to use when study already exists and should be continued
+    with open("saved_study.pkl", "rb") as f:
+        study = pickle.load(f)
+
+    # Code to use when new study should be created
+    # study = optuna.create_study(direction="maximize")
+    
+    study.optimize(objective, n_trials=30)
+
+    with open("saved_study.pkl", "wb") as f:
+        pickle.dump(study, f)
     
     # Print study statistics
     print("Study statistics:")
