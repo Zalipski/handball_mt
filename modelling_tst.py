@@ -388,7 +388,7 @@ else:
     d_ff = params_tst["d_ff"][0]
 
     # Give positive class more weight
-    num_class0 = 13
+    num_class0 = 12.5
     num_class1 = 1
     total = num_class0 + num_class1
     weight_class0 = total / (2.0 * num_class0)
@@ -401,19 +401,41 @@ else:
     dls = dls.to(device)
     model = TST(c_in=dls.vars, c_out=dls.c, seq_len=dls.len, n_layers=n_layers, d_model=d_model, n_heads=n_heads, d_k=d_k, d_v=d_v, d_ff=d_ff, dropout=dropout, fc_dropout=fc_dropout)
     learn = Learner(dls, model, loss_func=nn.BCEWithLogitsLoss(pos_weight=class_weights[1]), metrics=[F1ScoreMulti(), RocAucMulti(), PrecisionMulti(), RecallMulti()], cbs=None)
-    learn.fit_one_cycle(10, lr_max=learning_rate)
+    
+    number_of_epochs = 10
+    best_f1_score = 0
+    epochs_since_improvement = 0
+    patience = 5
+    delta = 0.03
 
-    learn.export("handball_sample/tst_model.pth") # Save final model
-    learner_test = load_learner("handball_sample/tst_model.pth", cpu=False)
+    for epoch in range(number_of_epochs):
+        print("Epoch: ", epoch)
+        learn.fit_one_cycle(1, lr_max=learning_rate)
+
+        current_f1_score = learn.recorder.values[-1][2]
+
+        if current_f1_score > best_f1_score + delta:
+            best_f1_score = current_f1_score
+            epochs_since_improvement = 0
+        else:
+            epochs_since_improvement += 1
+
+        if epochs_since_improvement >= patience:
+            print("Early stopping")
+            break
+
+    learn.export(f"handball_sample/tst_model_{window_length_ms}.pth") # Save final model
+    
+    learner_test = load_learner(f"tst_model_{window_length_ms}.pth", cpu=False)
 
     # Create DataLoader from test dataset
     test_dl = DataLoader(test_ds, batch_size=batch_size, shuffle=False)
 
     # Evaluate performance on test data
-    loss, f1, rocAuc, prec, rec = learn.validate(dl=test_dl)
+    loss, f1, rocAuc, prec, rec = learner_test.validate(dl=test_dl)
     print(f"Test Loss: {loss}, Test F1: {f1}, Test ROC AUC: {rocAuc}, Test Precision: {prec}, Test Recall: {rec}")
 
-    preds, y_true = learn.get_preds(dl=test_dl)
+    preds, y_true = learner_test.get_preds(dl=test_dl)
 
     # Final accuracy over all timestamps
     unique = list(dict.fromkeys(test_timestamps))
@@ -421,8 +443,8 @@ else:
     predicted_df = predicted_df.drop(predicted_df[predicted_df["full name"].str.contains("ball")].index, axis=0)
     predicted_df["possession_pred_prob"] = preds
     # Identify highest probability for possession within each timestamp
-    predicted_df['max_flag'] = predicted_df.groupby('formatted local time')['possession_pred_prob'].transform(lambda x: (x == x.max()).astype(int))
-    predicted_df['correct'] = (predicted_df['max_flag'] == predicted_df['possession']).astype(int)
-    total_timestamps = predicted_df['formatted local time'].nunique()
-    num_timestamps_all_correct = predicted_df.groupby('formatted local time')['correct'].all().sum()
+    predicted_df["max_flag"] = predicted_df.groupby("formatted local time")["possession_pred_prob"].transform(lambda x: (x == x.max()).astype(int))
+    predicted_df["correct"] = (predicted_df["max_flag"] == predicted_df["possession"]).astype(int)
+    total_timestamps = predicted_df["formatted local time"].nunique()
+    num_timestamps_all_correct = predicted_df.groupby("formatted local time")["correct"].all().sum()
     print(f"Number of correct timestamps: {num_timestamps_all_correct}, number of total timestamps: {total_timestamps}, Accuracy: {num_timestamps_all_correct / total_timestamps}")
