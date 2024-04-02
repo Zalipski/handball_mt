@@ -210,18 +210,32 @@ def evaluate_model(model, data):
     recall = recall_score(true_values, predictions, average="macro")
     return f1, precision, recall, predictions, probabilities
 
-match_train_df = pd.read_csv(r"handball_sample\match_training_model.csv", sep=";", index_col=0)
+match_train_val_df = pd.read_csv(r"handball_sample\match_training_model.csv", sep=";", index_col=0)
 match_test_df = pd.read_csv(r"handball_sample\match_test_model.csv", sep=";", index_col=0)
 
-match_train_df["formatted local time"] = pd.to_datetime(match_train_df["formatted local time"])
+match_train_val_df["formatted local time"] = pd.to_datetime(match_train_val_df["formatted local time"])
 match_test_df["formatted local time"] = pd.to_datetime(match_test_df["formatted local time"])
 
-# Only use visible timestamps for training and testing
+match_train_df = match_train_val_df[match_train_val_df["game"].isin(["FLEvsKIE", "ERLvsFLE", "FLEvsEIS"])]
+match_val_df = match_train_val_df[match_train_val_df["game"].isin(["GUMvsFLE"])]
+
+# Only use visible timestamps
 visible_df_train = match_train_df[(match_train_df["tag text"] != "not_visible")]
+visible_df_val = match_val_df[(match_val_df["tag text"] != "not_visible")]
 visible_df_test = match_test_df[(match_test_df["tag text"] != "not_visible")]
 
+# Get unique timestamps
+timestamps_train = visible_df_train["formatted local time"].unique()
+timestamps_val = visible_df_val["formatted local time"].unique()
+timestamps_test = visible_df_test["formatted local time"].unique()
+
+random.seed(42)
+random.shuffle(timestamps_train)
+random.shuffle(timestamps_val)
+
 # Prepare DataFrames
-train_val_df_prep = df_prep(visible_df_train)
+train_df_prep = df_prep(visible_df_train)
+val_df_prep = df_prep(visible_df_val)
 test_df_prep = df_prep(visible_df_test)
 
 training_vars = ["difference distance", "x in m_player", "x in m_ball", "y in m_player", "y in m_ball", "speed in m/s_ball", "speed in m/s_player", "acceleration in m/s2_ball", "acceleration in m/s2_player",
