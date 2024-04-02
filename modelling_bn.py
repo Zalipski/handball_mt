@@ -269,9 +269,20 @@ else:
     train_df_discr = discretize_data(training_vars, binned_training_vars, train_df_prep, best_params)
     test_df_discr = discretize_data(training_vars, binned_training_vars, test_df_prep, best_params)
 
-    bn_model_features = [("distance_to_ball_binned", "possession"),
+    bn_model_features = [("difference distance", "possession"),
+                        ("x_ball_binned", "possession"),
+                        ("x_player_binned", "possession"),
+                        ("y_ball_binned", "possession"),
+                        ("y_player_binned", "possession"),
                         ("speed_ball_binned", "possession"),
-                        ("speed_player_binned", "possession")]
+                        ("speed_player_binned", "possession"),
+                        ("acceleration_ball_binned", "possession"),
+                        ("acceleration_player_binned", "possession"),
+                        ("direction_ball_binned", "possession"),
+                        ("direction_player_binned", "possession"),
+                        ("difference speed_binned", "possession"),
+                        ("difference acceleration_binned", "possession"),
+                        ("difference direction_binned", "possession")]
 
     binned_training_vars += ["possession"]
 
