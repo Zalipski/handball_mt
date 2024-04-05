@@ -298,4 +298,4 @@ else:
     total_timestamps = test_df_discr["formatted local time"].nunique()
     print(num_timestamps_all_correct, total_timestamps, num_timestamps_all_correct / total_timestamps)
     end_time_final = datetime.now()
-    print(end_time_final, "Time taken for tuning: ", end_time_final-start_time_final)
+    print(end_time_final, "Time taken for final model: ", end_time_final-start_time_final)
