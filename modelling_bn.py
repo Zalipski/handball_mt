@@ -82,14 +82,15 @@ def discretize_data(discretization_vars, binned_vars, aligned_data, discretizati
         discretized_variable = discretization_vars[i]
         # Retrieve best bin edges for variable
         bins = discretization_params.loc[discretized_variable]["Best bins"]
-        # Replace inf and np. to be able to use literal_eval to retrieve list without error
-        bins = bins.replace("inf", "")
-        bins = bins.replace("np.", "-99")
+        # Replace -inf inf to be able to use literal_eval to retrieve list without error
+        bins = bins.replace("inf", "99999")
+        bins = bins.replace("-inf", "-99999")
         bins = literal_eval(bins)
         
         technique = discretization_params.loc[discretized_variable]["Best technique"]
         if technique == "equal_width" or technique == "equal_freq":
-            bins[-1] = np.inf # Replace "-99" as last value with np.inf
+            bins[-1] = np.inf # Replace "99999" as last value with np.inf
+            bins[0] = -np.inf # Replace "-99999" as first value with -np.inf
             discretized_data[binned_variable] = pd.cut(discretized_data[discretized_variable], bins=bins, labels=range(1, len(bins)), include_lowest=True)
         elif technique == "k_means":
             # Reshape data for KMeans
@@ -126,9 +127,10 @@ def model_tuning(train_df, val_df, tune_variable):
         for tuning_technique in ["equal_width", "equal_freq", "k_means"]:
             if tuning_technique == "equal_width":
                 # Calculate bin edges for equal width bins
-                bins = np.linspace(0, train_df[tune_variable].max(), number_of_bins + 1)
-                # Set first bin value to 0 and last to infinity to ensure all values of unseen data are included
+                bins = np.linspace(train_df[tune_variable].min(), train_df[tune_variable].max(), number_of_bins + 1)
+                # Set first bin value to -infinity and last to infinity to ensure all values of unseen data are included
                 bins[-1] = np.inf
+                bins[0] = -np.inf
                 bins = bins.tolist()
                 # Discretize data
                 train_df["variable_binned"] = pd.cut(train_df[tune_variable], bins=bins, labels=range(1, len(bins)), include_lowest=True)
@@ -136,9 +138,9 @@ def model_tuning(train_df, val_df, tune_variable):
             elif tuning_technique == "equal_freq":
                 # Discretize data
                 train_df["variable_binned"], bins = pd.qcut(train_df[tune_variable], q=number_of_bins, labels=range(1, len(bins)), retbins=True)
-                # Set first bin value to 0 and last to inf to ensure all values of unseen data are included
+                # Set first bin value to -inf and last to inf to ensure all values of unseen data are included
                 bins[-1] = np.inf
-                bins[0] = 0
+                bins[0] = -np.inf
                 bins = bins.tolist()
                 # Discretize data again after bin updates
                 train_df["variable_binned"] = pd.cut(train_df["variable_binned"], bins=bins, labels=range(1, len(bins)), include_lowest=True)
