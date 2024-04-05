@@ -82,7 +82,6 @@ if __name__ == "__main__":
     tags["adjusted_timestamp"] = tags["# time (in ms)"].apply(lambda x: table_start_time + timedelta(milliseconds=x + offset))
     tags["rounded_timestamp"] = tags["adjusted_timestamp"].apply(round_to_nearest_50ms) # Round adjusted timestamps
 
-    # Forward fill tags df to have correct merging of match and tags df 
     video_start_time = tags["rounded_timestamp"].iloc[0]
     table_end_time = match_full["formatted local time"].iloc[-1]
 

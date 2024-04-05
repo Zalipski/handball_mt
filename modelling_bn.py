@@ -75,7 +75,7 @@ def discretize_data(discretization_vars, binned_vars, aligned_data, discretizati
     discretized_data -- the discretized DataFrame
     """
 
-    discretized_data = aligned_data.dropna(subset=discretization_vars)
+    discretized_data = aligned_data.copy()
 
     for i in range(len(binned_vars)):
         binned_variable = binned_vars[i]
@@ -98,8 +98,6 @@ def discretize_data(discretization_vars, binned_vars, aligned_data, discretizati
             k_means = load(f"handball_sample\k_means_model_{binned_variable}.joblib")
             discretized_data = discretized_data.copy()
             discretized_data[binned_variable] = k_means.predict(X_test)
-
-    discretized_data.dropna(subset=binned_vars, inplace=True)
 
     return discretized_data
 
@@ -154,9 +152,6 @@ def model_tuning(train_df, val_df, tune_variable):
                 train_df["variable_binned"] = k_means.predict(X_train)
                 val_df["variable_binned"] = k_means.predict(X_val)
                 bins = []
-
-            train_df.dropna(subset=["variable_binned", "possession"], inplace=True)
-            val_df.dropna(subset=["variable_binned", "possession"], inplace=True)
 
             bn_model_features = [("variable_binned", "possession")]
 
@@ -223,15 +218,6 @@ match_val_df = match_train_val_df[match_train_val_df["game"].isin(["GUMvsFLE"])]
 visible_df_train = match_train_df[(match_train_df["tag text"] != "not_visible")]
 visible_df_val = match_val_df[(match_val_df["tag text"] != "not_visible")]
 visible_df_test = match_test_df[(match_test_df["tag text"] != "not_visible")]
-
-# Get unique timestamps
-timestamps_train = visible_df_train["formatted local time"].unique()
-timestamps_val = visible_df_val["formatted local time"].unique()
-timestamps_test = visible_df_test["formatted local time"].unique()
-
-random.seed(42)
-random.shuffle(timestamps_train)
-random.shuffle(timestamps_val)
 
 # Prepare DataFrames
 train_df_prep = df_prep(visible_df_train)

@@ -10,13 +10,12 @@ import torch
 from torch.utils.data import DataLoader
 from tsai.all import *
 import optuna
-from optuna.integration import FastAIPruningCallback
 import pickle
 
 window_length_ms, tuning = int(sys.argv[1]), str(sys.argv[2])
 
 window_length_datetime = timedelta(milliseconds=window_length_ms)
-input_time_steps = (window_length_ms / 50) + 1 # Amount of input timesteps for model, depending on window length
+input_time_steps = (window_length_ms // 50) + 1 # Amount of input timesteps for model, depending on window length
 
 def set_every_seed(seed=42):
     """ Sets every possible seed.
@@ -127,7 +126,7 @@ def pivot_df_prep(aligned_df):
     # Extract unique player names and sort them
     players = sorted(set([col[col.find("_") + 1:] for col in pivot_df.columns if not "Ball" in col]))
 
-    # Reorder columns to group corresponding variablers for each player
+    # Reorder columns to group corresponding variables for each player
     ordered_columns = ["x in m_Ball", "y in m_Ball", "speed in m/s_Ball", "acceleration in m/s2_Ball", "sin angle_Ball", "cos angle_Ball"]
     for player in players:
         ordered_columns.extend([f"x in m_{player}", f"y in m_{player}", f"possession_{player}", f"speed in m/s_{player}", f"acceleration in m/s2_{player}",
@@ -190,7 +189,7 @@ def create_samples(timestamp_game, data_amount, pivot_df, timestamp_player_dict)
 
     X_list_total = []
     y_list_total = []
-    ts_list_total = [] # List for saving used timestamps for being being able to measure prediction performance 
+    ts_list_total = [] # List for saving used timestamps for being being able to measure prediction performance
 
     for window_start, window_end in tqdm(zip(window_starts[:data_amount], timestamps[:data_amount])):
         X_list_temporary = []
@@ -302,7 +301,6 @@ aligned_df_train, ts_player_dict_train = align_df_prep(match_train_df)
 aligned_df_val, ts_player_dict_val = align_df_prep(match_val_df)
 aligned_df_test, ts_player_dict_test = align_df_prep(match_test_df)
 
-# Columns to be scaled
 columns_to_scale = [# Player
                     "x in m_player", "y in m_player",
                     "speed in m/s_player", "acceleration in m/s2_player",
@@ -315,15 +313,14 @@ columns_to_scale = [# Player
                     "difference distance", "difference speed", "difference acceleration",
                     "difference sin angle", "difference cos angle"]
 
-# Columns not to scale
 columns_not_to_scale = [col for col in aligned_df_train.columns if col not in columns_to_scale]
-# Fit the scaler on the training data (only on columns to scale)
+
 scaler = StandardScaler().fit(aligned_df_train[columns_to_scale])
-# Transform the data (only scale the columns that need scaling)
+
 df_train_scaled = pd.DataFrame(scaler.transform(aligned_df_train[columns_to_scale]), columns=columns_to_scale, index=aligned_df_train.index)
 df_val_scaled = pd.DataFrame(scaler.transform(aligned_df_val[columns_to_scale]), columns=columns_to_scale, index=aligned_df_val.index)
 df_test_scaled = pd.DataFrame(scaler.transform(aligned_df_test[columns_to_scale]), columns=columns_to_scale, index=aligned_df_test.index)
-# Concatenate the scaled columns back with the columns that were not scaled
+
 match_train_df_scaled = pd.concat([df_train_scaled, aligned_df_train[columns_not_to_scale]], axis=1)
 match_val_df_scaled = pd.concat([df_val_scaled, aligned_df_val[columns_not_to_scale]], axis=1)
 match_test_df_scaled = pd.concat([df_test_scaled, aligned_df_test[columns_not_to_scale]], axis=1)
@@ -338,7 +335,6 @@ pivot_df_test = pivot_df_prep(match_test_df_scaled)
 visible_df_train = match_train_df[(match_train_df["tag text"] != "not_visible")]
 visible_df_val = match_val_df[(match_val_df["tag text"] != "not_visible")]
 visible_df_test = match_test_df[(match_test_df["tag text"] != "not_visible")]
-
 # Get unique timestamps
 timestamps_train = visible_df_train["formatted local time"].unique()
 timestamps_val = visible_df_val["formatted local time"].unique()

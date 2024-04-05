@@ -5,7 +5,7 @@ import time_check_df
 
 def main(preparation_type, game, stats):
     def calculate_movement_vars(df):
-        """ Calculates the speed, acceleration and direction of movement .
+        """ Calculates the speed, acceleration and direction of movement.
         
         Parameters:
         df -- the DataFrame for which the variables should be calculated
@@ -24,13 +24,13 @@ def main(preparation_type, game, stats):
         df["speed in m/s"] = round(df["distance"] / df["delta_time"], 3)
         
         df["delta_speed"] = df.groupby("full name")["speed in m/s"].diff()
-        df['acceleration in m/s2'] = df['delta_speed'] / df['delta_time']
+        df["acceleration in m/s2"] = df["delta_speed"] / df["delta_time"]
 
         df["direction of movement in deg"] = round(np.degrees(np.arctan2(df["delta_y"], df["delta_x"])), 3)
 
-        df['angle rad'] = np.deg2rad(df['direction of movement in deg'])
-        df['sin angle'] = np.sin(df['angle rad'])
-        df['cos angle'] = np.cos(df['angle rad'])
+        df["angle rad"] = np.deg2rad(df["direction of movement in deg"])
+        df["sin angle"] = np.sin(df["angle rad"])
+        df["cos angle"] = np.cos(df["angle rad"])
         
         # Set value to nan if time difference is not exactly 0.05, e.g. due to playing stoppage 
         df.loc[df["delta_time"] != 0.05, ["speed in m/s", "acceleration in m/s2", "sin angle", "cos angle"]] = np.nan
@@ -84,11 +84,11 @@ def main(preparation_type, game, stats):
 
         # Get game start time
         if game == "FLEvsEIS":
-            table_start_time = pd.to_datetime("2023-10-28 19:02:14.000") # No player has possession in first half of that game according to Kinexon
+            table_start_time = pd.to_datetime("2023-10-28 19:02:14.000") # No player has possession in first half of that game according to Kinexon, set start time manually
         # elif game == "FLEvsRNL":
         #     table_start_time = pd.to_datetime("2023-11-18 18:02:10.650") # Possession starts to late
         else:
-            table_start_time = match_start_poss["formatted local time"].iloc[0]
+            table_start_time = match_start_poss["formatted local time"].iloc[0] # Take first instance of possession in data as start time
 
         tags.drop(["player"], axis=1, inplace=True)
         tags["# time (in ms) vid"] = tags["# time (in ms)"]
@@ -118,7 +118,7 @@ def main(preparation_type, game, stats):
         
         match_full = calculate_movement_vars(match_full) # Add movement variables
 
-        match_full = match_full.dropna(subset = ["x in m", "y in m", "speed in m/s", "acceleration in m/s2", "direction of movement in deg"], axis = 0)
+        match_full = match_full.dropna(subset=["x in m", "y in m", "speed in m/s", "acceleration in m/s2", "direction of movement in deg"], axis=0)
 
         if stats == "False":
             # Only use timestamps where exactly one ball and 12-14 players are present
@@ -179,11 +179,9 @@ def main(preparation_type, game, stats):
 
         if stats == "False":
             # Drop timestamps with no possession in it
-            # Group by timestamp and check if all possession values are 0
+            # Group by timestamp and drop those having 0 for all possession values
             timestamps_with_all_zeros = prepared_match.groupby("formatted local time")["possession"].apply(lambda x: x.eq(0).all())
-            # Filter timestamps where condition is True
-            result_timestamps = timestamps_with_all_zeros[timestamps_with_all_zeros].index
-            # Filter out these timestamps from original DataFrame
+            result_timestamps = timestamps_with_all_zeros[timestamps_with_all_zeros].index    
             prepared_match = prepared_match[~prepared_match["formatted local time"].isin(result_timestamps)]
 
         # Due to merging with two tags at same timestamp, some rows are present twice, drop duplicates
