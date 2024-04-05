@@ -411,7 +411,7 @@ else:
     model = TST(c_in=dls.vars, c_out=dls.c, seq_len=dls.len, n_layers=n_layers, d_model=d_model, n_heads=n_heads, d_k=d_k, d_v=d_v, d_ff=d_ff, dropout=dropout, fc_dropout=fc_dropout)
     learn = Learner(dls, model, loss_func=nn.BCEWithLogitsLoss(pos_weight=class_weights[1]), metrics=[F1ScoreMulti(), RocAucMulti(), PrecisionMulti(), RecallMulti()], cbs=None)
     
-    number_of_epochs = 10
+    number_of_epochs = 20
     best_f1_score = 0
     epochs_since_improvement = 0
     patience = 5
