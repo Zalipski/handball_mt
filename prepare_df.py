@@ -130,12 +130,14 @@ def main(preparation_type, game, stats):
             filtered_merged_df = pd.merge(filtered_match, tags_full, left_on="formatted local time", right_on="timestamp", how="left")
             
             filtered_merged_df.drop(["ts in ms", "sensor id", "mapped id", "league id", "group id",
-                                "total distance in m", "timestamp", "# time (in ms)", "adjusted_timestamp"], axis=1, inplace=True)
+                                    "total distance in m", "timestamp", "# time (in ms)", "adjusted_timestamp", "metabolic power in W/kg",
+                                    "player orientation category (forward, back, left, right)",	"acceleration load"], axis=1, inplace=True)
             prepared_match = filtered_merged_df
         else:
             match_full = pd.merge(match_full, tags_full, left_on="formatted local time", right_on="timestamp", how="left")
             match_full.drop(["ts in ms", "sensor id", "mapped id", "league id", "group id",
-                                "total distance in m", "timestamp", "# time (in ms)", "adjusted_timestamp"], axis=1, inplace=True)
+                            "total distance in m", "timestamp", "# time (in ms)", "adjusted_timestamp", "metabolic power in W/kg",
+                            "player orientation category (forward, back, left, right)",	"acceleration load"], axis=1, inplace=True)
             prepared_match = match_full
 
         # Prepare columns for possession classification
