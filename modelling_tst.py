@@ -379,10 +379,10 @@ if tuning == "True":
 
     # Create DataFrame with best params and save it
     params_df = pd.DataFrame(trial.params, index=[0])
-    params_df.to_csv(r"handball_sample\best_params_tst.csv")
+    params_df.to_csv(f"handball_sample/best_params_tst_{window_length_ms}ms.csv")
 else:
     # Load best params
-    params_tst = pd.read_csv(r"handball_sample\best_params_tst.csv", index_col=0)
+    params_tst = pd.read_csv(f"handball_sample/best_params_tst_{window_length_ms}ms.csv", index_col=0)
 
     # Retrieve best params data
     learning_rate = float(params_tst["learning_rate"][0]) # Learning rate must be converted to float from numpy.float64 due to error
@@ -433,9 +433,9 @@ else:
             print("Early stopping")
             break
 
-    learn.export(f"handball_sample/tst_model_{window_length_ms}.pth") # Save final model
+    learn.export(f"handball_sample/tst_model_{window_length_ms}ms.pth") # Save final model
     
-    learner_test = load_learner(f"tst_model_{window_length_ms}.pth", cpu=False)
+    learner_test = load_learner(f"handball_sample/tst_model_{window_length_ms}ms.pth", cpu=False)
 
     # Create DataLoader from test dataset
     test_dl = DataLoader(test_ds, batch_size=batch_size, shuffle=False)
