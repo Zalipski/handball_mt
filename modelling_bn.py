@@ -226,10 +226,12 @@ train_df_prep = df_prep(visible_df_train)
 val_df_prep = df_prep(visible_df_val)
 test_df_prep = df_prep(visible_df_test)
 
-training_vars = ["difference distance", "x in m_player", "x in m_ball", "y in m_player", "y in m_ball", "speed in m/s_ball", "speed in m/s_player", "acceleration in m/s2_ball", "acceleration in m/s2_player",
+training_vars = ["difference distance", "x in m_player", "x in m_ball", "y in m_player", "y in m_ball", "speed in m/s_ball", "speed in m/s_player",
+                 "acceleration in m/s2_ball", "acceleration in m/s2_player",
                  "direction of movement in deg_ball", "direction of movement in deg_player",
                  "difference speed", "difference acceleration", "difference direction"]
-binned_training_vars = ["difference distance", "speed_ball_binned", "speed_player_binned", "acceleration_ball_binned", "acceleration_player_binned",
+binned_training_vars = ["difference distance", "x_player_binned", "x_ball_binned", "y_player_binned", "y_ball_binned", "speed_ball_binned", "speed_player_binned",
+                        "acceleration_ball_binned", "acceleration_player_binned",
                         "direction_ball_binned", "direction_player_binned",
                         "difference speed_binned", "difference acceleration_binned", "difference direction_binned"]
 
