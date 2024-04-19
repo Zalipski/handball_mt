@@ -125,6 +125,7 @@ def model_tuning(train_df, val_df, tune_variable):
 
     for number_of_bins in tqdm(range(2, 12)):
         for tuning_technique in ["equal_width", "equal_freq", "k_means"]:
+            print("No. bins: ", number_of_bins, " Technique: ", tuning_technique)
             if tuning_technique == "equal_width":
                 # Calculate bin edges for equal width bins
                 bins = np.linspace(train_df[tune_variable].min(), train_df[tune_variable].max(), number_of_bins + 1)
@@ -165,12 +166,12 @@ def model_tuning(train_df, val_df, tune_variable):
             # Evaluate on vaidation set
             test_f1, _, _, _, _ = evaluate_model(model, val_df[training_vars])
             if test_f1 > best_f1_score + delta:
-                # If current F1-score is better than best F1-score + delta, update values
                 best_technique = tuning_technique
                 best_bins = bins
                 best_f1_score = test_f1
                 if best_technique == "k_means":
                     best_k_means = k_means
+            print("F1: ", test_f1)
     
     return best_technique, best_bins, best_f1_score, best_k_means
 
