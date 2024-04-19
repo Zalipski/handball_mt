@@ -123,7 +123,7 @@ def model_tuning(train_df, val_df, tune_variable):
     best_k_means = None
     delta = 0.05
 
-    for number_of_bins in tqdm(range(2, 21)):
+    for number_of_bins in tqdm(range(2, 12)):
         for tuning_technique in ["equal_width", "equal_freq", "k_means"]:
             if tuning_technique == "equal_width":
                 # Calculate bin edges for equal width bins
