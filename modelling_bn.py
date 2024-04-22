@@ -137,9 +137,14 @@ def model_tuning(train_df, val_df, tune_variable):
                 train_df["variable_binned"] = pd.cut(train_df[tune_variable], bins=bins, labels=range(1, len(bins)), include_lowest=True)
                 val_df["variable_binned"] = pd.cut(val_df[tune_variable], bins=bins, labels=range(1, len(bins)), include_lowest=True)
             elif tuning_technique == "equal_freq":
-                # Discretize data
-                train_df["variable_binned"], bins = pd.qcut(train_df[tune_variable], q=number_of_bins, labels=range(1, len(bins)), retbins=True)
-                # Set first bin value to -inf and last to inf to ensure all values of unseen data are included
+                try:
+                    # Discretize data
+                    train_df["variable_binned"], bins = pd.qcut(train_df[tune_variable], q=number_of_bins, labels=range(1, number_of_bins + 1), retbins=True)
+                    val_df["variable_binned"], bins = pd.qcut(val_df[tune_variable], q=number_of_bins, labels=range(1, number_of_bins + 1), retbins=True)
+                except ValueError as e:
+                    # Duplicate bins are present, proceed to next iteration
+                    print(e)
+                    continue
                 bins[-1] = np.inf
                 bins[0] = -np.inf
                 bins = bins.tolist()
@@ -163,15 +168,19 @@ def model_tuning(train_df, val_df, tune_variable):
             model = BayesianNetwork(bn_model_features)
             model.fit(train_df[training_vars], estimator=MaximumLikelihoodEstimator)
 
-            # Evaluate on vaidation set
-            test_f1, _, _, _, _ = evaluate_model(model, val_df[training_vars])
-            if test_f1 > best_f1_score + delta:
-                best_technique = tuning_technique
-                best_bins = bins
-                best_f1_score = test_f1
-                if best_technique == "k_means":
-                    best_k_means = k_means
-            print("F1: ", test_f1)
+            # Evaluate on validation set
+            try:
+                test_f1, _, _, _, _, _ = evaluate_model(model, val_df[training_vars])
+                if test_f1 > best_f1_score + delta:
+                    best_technique = tuning_technique
+                    best_bins = bins
+                    best_f1_score = test_f1
+                    if best_technique == "k_means":
+                        best_k_means = k_means
+                print("F1: ", test_f1)
+            except KeyError as e:
+                # Some bins are not represented in validation data, proceed to next iteration
+                print(e)
     
     return best_technique, best_bins, best_f1_score, best_k_means
 
