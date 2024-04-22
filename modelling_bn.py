@@ -7,7 +7,7 @@ import os
 from ast import literal_eval
 from tsai.all import *
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import f1_score, precision_score, recall_score, classification_report
+from sklearn.metrics import f1_score, precision_score, recall_score, roc_auc_score, classification_report
 from sklearn.cluster import KMeans
 from pgmpy.models import BayesianNetwork
 from pgmpy.estimators import MaximumLikelihoodEstimator
@@ -180,7 +180,7 @@ def evaluate_model(model, data):
     
     Parameters:
     model -- the trained model
-    data  -- the data used for the model training
+    data  -- the data used for the model validation
 
     Returns:
     f1            -- the F1-score
@@ -206,7 +206,9 @@ def evaluate_model(model, data):
     f1 = f1_score(true_values, predictions, average="macro")
     precision = precision_score(true_values, predictions, average="macro")
     recall = recall_score(true_values, predictions, average="macro")
-    return f1, precision, recall, predictions, probabilities
+    roc_auc = roc_auc_score(true_values, predictions, average="macro")
+    
+    return f1, precision, recall, roc_auc, predictions, probabilities
 
 match_train_val_df = pd.read_csv(r"handball_sample\match_training_model.csv", sep=";", index_col=0)
 match_test_df = pd.read_csv(r"handball_sample\match_test_model.csv", sep=";", index_col=0)
@@ -281,10 +283,11 @@ else:
     model.fit(train_df_discr[binned_training_vars], estimator=MaximumLikelihoodEstimator)
 
     # Evaluate on test set
-    test_f1, test_precision, test_recall, test_predictions, test_probabilities = evaluate_model(model, test_df_discr[binned_training_vars])
+    test_f1, test_precision, test_recall, test_roc_auc, test_predictions, test_probabilities = evaluate_model(model, test_df_discr[binned_training_vars])
     print("Test F1 Score:", test_f1)
     print("Test Precision:", test_precision)
     print("Test Recall:", test_recall)
+    print("Test ROC-AUC:", test_roc_auc)
 
     print(classification_report(test_df_discr["possession"], test_predictions))
 
