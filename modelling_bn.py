@@ -128,7 +128,7 @@ def model_tuning(train_df, val_df, tune_variable):
     best_k_means = None
     delta = 0.05
 
-    for number_of_bins in tqdm(range(2, 12)):
+    for number_of_bins in tqdm(range(3, 21)):
         for tuning_technique in ["equal_width", "equal_freq", "k_means"]:
             print("No. bins: ", number_of_bins, " Technique: ", tuning_technique)
             if tuning_technique == "equal_width":
