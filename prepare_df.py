@@ -39,7 +39,7 @@ def calculate_movement_vars(df):
         return df
 
 def main(preparation_type, game, stats):
-    offsets = {"FLEvsKIE": 500,  "ERLvsFLE": 300, "FLEvsEIS": 400, "FLEvsRNL": None, "GUMvsFLE": -1300, "FLEvsMEL": 350} # Offset values for tags, depend on comparison in time_check_df
+    offsets = {"FLEvsKIE": 500,  "ERLvsFLE": 300, "FLEvsEIS": 400, "FLEvsRNL": -200, "GUMvsFLE": -1300, "FLEvsMEL": 350} # Offset values for tags, depend on comparison in time_check_df
 
     if stats == "True":
         file_name_add = "stats"
@@ -60,10 +60,10 @@ def main(preparation_type, game, stats):
             match_h1 = pd.read_csv(r"handball_sample\MD11_Flensburg_Eisenach\SG_Flensburg-Handewitt_vs._ThS_phase_1._Halbzeit__positions.csv", sep=";")
             match_h2 = pd.read_csv(r"handball_sample\MD11_Flensburg_Eisenach\SG_Flensburg-Handewitt_vs._ThS_phase_2._Halbzeit__positions.csv", sep=";")
             tags = pd.read_csv(r"handball_sample\MD11_Flensburg_Eisenach\tags_flensburg_eisenach_md11_s2324.csv", sep=";")
-        # elif game == "FLEvsRNL":
-        #     match_h1 = pd.read_csv(r"handball_sample\MD13_Flensburg_RNL\SG_Flensburg-Handewitt_vs._Rhe_phase_1._Halbzeit__positions.csv", sep=";")
-        #     match_h2 = pd.read_csv(r"handball_sample\MD13_Flensburg_RNL\SG_Flensburg-Handewitt_vs._Rhe_phase_2._Halbzeit__positions.csv", sep=";")
-        #     tags = pd.read_csv(r"handball_sample\MD13_Flensburg_RNL\tags_flensburg_rnl_md13_s2324.csv", sep=";")
+        elif game == "FLEvsRNL":
+            match_h1 = pd.read_csv(r"handball_sample\MD13_Flensburg_RNL\SG_Flensburg-Handewitt_vs._Rhe_phase_1._Halbzeit__positions.csv", sep=";")
+            match_h2 = pd.read_csv(r"handball_sample\MD13_Flensburg_RNL\SG_Flensburg-Handewitt_vs._Rhe_phase_2._Halbzeit__positions.csv", sep=";")
+            tags = pd.read_csv(r"handball_sample\MD13_Flensburg_RNL\tags_flensburg_rnl_md13_s2324.csv", sep=";")
         elif game == "GUMvsFLE":
             match_h1 = pd.read_csv(r"handball_sample\MD14_Gummersbach_Flensburg\VfL_Gummersbach_vs._SG_Flensbu_phase_1._Halbzeit_positions.csv", sep=";")
             match_h2 = pd.read_csv(r"handball_sample\MD14_Gummersbach_Flensburg\VfL_Gummersbach_vs._SG_Flensbu_phase_2._Halbzeit_positions.csv", sep=";")
@@ -76,7 +76,12 @@ def main(preparation_type, game, stats):
         match_full = pd.concat([match_h1, match_h2]).reset_index().drop(["index", "heart rate in bpm", "core temperature in celsius", "player orientation in deg",  "Unnamed: 23"], axis=1)
         match_full["formatted local time"] = pd.to_datetime(match_full["formatted local time"])
 
-        match_start = match_full[match_full[~np.isnan(match_full["ball possession (id of possessed ball)"])].index[0]:]
+        if game == "FLEvsRNL":
+            # Manually set start time, as players before that time are in possession but no ball data is available
+            match_full_rnl = match_full[match_full["formatted local time"] >= "2023-11-18 18:04:45.550000"]
+            match_start = match_full[match_full_rnl[np.isnan(match_full_rnl["ball possession (id of possessed ball)"])].index[0]:].copy()
+        else:
+            match_start = match_full[match_full[~np.isnan(match_full["ball possession (id of possessed ball)"])].index[0]:]
         match_start.loc[:, "time diff from start"] = match_start.loc[:, "formatted local time"] - match_start["formatted local time"].iloc[0]
         match_start_poss = match_start.dropna(subset=["ball possession (id of possessed ball)"])
         # Drop consecutive rows where same player is still in possession, this is achieved by comparing each row with previous row and keeping only rows where player in possession changes
@@ -85,8 +90,6 @@ def main(preparation_type, game, stats):
         # Get game start time
         if game == "FLEvsEIS":
             table_start_time = pd.to_datetime("2023-10-28 19:02:14.000") # No player has possession in first half of that game according to Kinexon, set start time manually
-        # elif game == "FLEvsRNL":
-        #     table_start_time = pd.to_datetime("2023-11-18 18:02:10.650") # Possession starts to late
         else:
             table_start_time = match_start_poss["formatted local time"].iloc[0] # Take first instance of possession in data as start time
 
@@ -159,7 +162,10 @@ def main(preparation_type, game, stats):
         # Eisenach
         # no change needed
         # RNL
-
+        prepared_match["tag text"].replace("arnór_snaer_óskarsson", "arnór_snær_óskarsson", inplace=True)
+        prepared_match["tag text"].replace("leon_zacharias", "lion_zacharias", inplace=True)
+        prepared_match["tag text"].replace("niklas_kirkelokke", "niclas_kirkelokke", inplace=True)
+        prepared_match["full name"].replace("mikael__appelgren", "mikael_appelgren", inplace=True)
         # Gummersbach
         prepared_match["tag text"].replace("ellidi_vidarsson", "ellidi_snaer_vidarsson", inplace=True)
         prepared_match["tag text"].replace("teitur_orn_einarsson", "teitur_örn_einarsson", inplace=True)
@@ -197,8 +203,8 @@ def main(preparation_type, game, stats):
             prepared_match.to_csv(f"handball_sample/MD10_Erlangen_Flensburg/erlangen_flensburg_md10_{file_name_add}.csv", sep=";")
         elif game == "FLEvsEIS":
             prepared_match.to_csv(f"handball_sample/MD11_Flensburg_Eisenach/flensburg_eisenach_md11_{file_name_add}.csv", sep=";")
-        # elif game == "FLEvsRNL":
-        #     result_df.to_csv(f"handball_sample/MD13_Flensburg_RNL/flensburg_rnl_md13_{file_name_add}.csv", sep=";")
+        elif game == "FLEvsRNL":
+            prepared_match.to_csv(f"handball_sample/MD13_Flensburg_RNL/flensburg_rnl_md13_{file_name_add}.csv", sep=";")
         elif game == "GUMvsFLE":
             prepared_match.to_csv(f"handball_sample/MD14_Gummersbach_Flensburg/gummersbach_flensburg_md14_{file_name_add}.csv", sep=";")
         elif game == "FLEvsMEL":
@@ -210,7 +216,7 @@ def main(preparation_type, game, stats):
         match_fle_kie = pd.read_csv(f"handball_sample/MD05_Flensburg_Kiel/flensburg_kiel_md5_{file_name_add}.csv", index_col=0, sep=";")
         match_erl_fle = pd.read_csv(f"handball_sample/MD10_Erlangen_Flensburg/erlangen_flensburg_md10_{file_name_add}.csv", index_col=0, sep=";")
         match_fle_eis = pd.read_csv(f"handball_sample/MD11_Flensburg_Eisenach/flensburg_eisenach_md11_{file_name_add}.csv", index_col=0, sep=";")
-        #match_fle_rnl = pd.read_csv(f"handball_sample/MD13_Flensburg_RNL/flensburg_rnl_md13{file_name_add}.csv", index_col=0, sep=";")
+        match_fle_rnl = pd.read_csv(f"handball_sample/MD13_Flensburg_RNL/flensburg_rnl_md13{file_name_add}.csv", index_col=0, sep=";")
         match_gum_fle = pd.read_csv(f"handball_sample/MD14_Gummersbach_Flensburg/gummersbach_flensburg_md14_{file_name_add}.csv", index_col=0, sep=";")
         match_fle_mel = pd.read_csv(f"handball_sample/MD15_Flensburg_Melsungen/flensburg_melsungen_md15_{file_name_add}.csv", index_col=0, sep=";")
         
@@ -228,7 +234,7 @@ def main(preparation_type, game, stats):
 
 if __name__ == "__main__":
     for stats in ["True", "False"]:
-        for game in  ["FLEvsKIE", "ERLvsFLE", "FLEvsEIS", "GUMvsFLE", "FLEvsMEL"]:
+        for game in  ["FLEvsKIE", "ERLvsFLE", "FLEvsEIS", "GUMvsFLE", "FLEvsMEL", "FLEvsRNL"]:
             print("----- single", game, " -----")
             main(preparation_type="single", game=game, stats=stats)
     print("Stats all true")

@@ -59,7 +59,12 @@ if __name__ == "__main__":
     match_full = pd.concat([match_h1, match_h2]).reset_index().drop(["index", "heart rate in bpm", "core temperature in celsius", "player orientation in deg",  "Unnamed: 23"], axis=1)
     match_full["formatted local time"] = pd.to_datetime(match_full["formatted local time"])
 
-    match_start = match_full[match_full[~np.isnan(match_full["ball possession (id of possessed ball)"])].index[0]:]
+    if game == "FLEvsRNL":
+        # Manually set start time, as instances before that are in possession but no ball data is available
+        match_full_rnl = match_full[match_full["formatted local time"] >= "2023-11-18 18:04:45.550000"]
+        match_start = match_full[match_full_rnl[np.isnan(match_full_rnl["ball possession (id of possessed ball)"])].index[0]:].copy()
+    else:
+        match_start = match_full[match_full[~np.isnan(match_full["ball possession (id of possessed ball)"])].index[0]:]
     match_start["time diff from start"] = match_start["formatted local time"] - match_start["formatted local time"].iloc[0]
 
     match_start_poss = match_start.dropna(subset=["ball possession (id of possessed ball)"])
