@@ -6,7 +6,6 @@ import random
 import os
 from ast import literal_eval
 from tsai.all import *
-from sklearn.model_selection import train_test_split
 from sklearn.metrics import f1_score, precision_score, recall_score, roc_auc_score, classification_report
 from sklearn.cluster import KMeans
 from pgmpy.models import BayesianNetwork
