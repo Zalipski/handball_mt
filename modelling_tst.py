@@ -14,11 +14,6 @@ from tsai.all import *
 import optuna
 import pickle
 
-window_length_ms, tuning = int(sys.argv[1]), str(sys.argv[2])
-
-window_length_datetime = timedelta(milliseconds=window_length_ms)
-input_time_steps = (window_length_ms // 50) + 1 # Amount of input timesteps for model, depending on window length
-
 def set_every_seed(seed=42):
     """ Sets every possible seed.
     
@@ -140,14 +135,15 @@ def pivot_df_prep(aligned_df):
     
     return pivot_df
 
-def sample_retrieval(player, pivot_df, window_start, window_end):
+def sample_retrieval(player, pivot_df, window_start, window_end, input_time_steps):
     """ Retrieves the sample values from the specified time window.
     
     Parameters:
-    player        -- the name of the current player within the timestamp
-    pivot_df      -- the pivot transformed DataFrame
-    window_start  -- the starting point of the window
-    window_end    -- the ending point of the window
+    player           -- the name of the current player within the timestamp
+    pivot_df         -- the pivot transformed DataFrame
+    window_start     -- the starting point of the window
+    window_end       -- the ending point of the window
+    input_time_steps -- the amount of frames in the considered window
 
     Returns:
     df_timestamp  -- the DataFrame for the current timestamp window
@@ -172,14 +168,16 @@ def sample_retrieval(player, pivot_df, window_start, window_end):
 
     return df_timestamp, label, usable_sample
 
-def create_samples(timestamp_game, data_amount, pivot_df, timestamp_player_dict):
+def create_samples(timestamp_game, data_amount, pivot_df, timestamp_player_dict, window_length_datetime, input_time_steps):
     """ Creates the complete samples for the train/val/test set.
     
     Parameters:
-    timestamp_game          -- the DataFrame the pivot function should be performed on
-    data_amount             -- the amount of samples to be considered
-    pivot_df                -- the pivot transformed DataFrame
-    timestamp_player_dict   -- the dictionary containing the players for each timestamp
+    timestamp_game         -- the DataFrame the pivot function should be performed on
+    data_amount            -- the amount of samples to be considered
+    pivot_df               -- the pivot transformed DataFrame
+    timestamp_player_dict  -- the dictionary containing the players for each timestamp
+    window_length_datetime -- the window length in milliseconds
+    input_time_steps       -- the amount of frames in the considered window
 
     Returns:
     tsd           -- the TimeseriesDataset containing the X and y tensors
@@ -198,18 +196,21 @@ def create_samples(timestamp_game, data_amount, pivot_df, timestamp_player_dict)
         y_list_temporary = []
         ts_list_temporary = [] # List for saving used timestamps for being able to measure prediction performance
         usable_sample = "true"
-        for player in timestamp_player_dict[pd.Timestamp(window_end)]:
-            sample, label, usable_sample = sample_retrieval(player, pivot_df, window_start, window_end)
-            if usable_sample == "false":
-                break # Skip timestamp if not enough data is available
+        if pd.Timestamp(window_end) in timestamp_player_dict:
+            for player in timestamp_player_dict[pd.Timestamp(window_end)]:
+                sample, label, usable_sample = sample_retrieval(player, pivot_df, window_start, window_end, input_time_steps=input_time_steps)
+                if usable_sample == "false":
+                    break # Skip timestamp if not enough data is available
 
-            ts_list_temporary.append(window_end)
-            X_list_temporary.append(sample)
-            y_list_temporary.append(label)
-        if usable_sample == "true":
-            X_list_total += X_list_temporary
-            y_list_total += y_list_temporary
-            ts_list_total += ts_list_temporary
+                ts_list_temporary.append(window_end)
+                X_list_temporary.append(sample)
+                y_list_temporary.append(label)
+            if usable_sample == "true":
+                X_list_total += X_list_temporary
+                y_list_total += y_list_temporary
+                ts_list_total += ts_list_temporary
+        else:
+            pass
 
     # Convert lists to numpy arrays
     X = np.array(X_list_total)
@@ -286,185 +287,193 @@ def objective(trial:optuna.Trial):
 
     return current_f1_score
 
-# Load data
-match_train_val_df = pd.read_csv(r"handball_sample\match_training_model.csv", sep=";", index_col=0)
-match_test_df = pd.read_csv(r"handball_sample\match_test_model.csv", sep=";", index_col=0)
+if __name__ == "__main__":
+    window_length_ms, tuning = int(sys.argv[1]), str(sys.argv[2])
+    window_length_datetime = timedelta(milliseconds=window_length_ms)
+    input_time_steps = (window_length_ms // 50) + 1 # Amount of input timesteps for model, depending on window length
 
-match_train_val_df["formatted local time"] = pd.to_datetime(match_train_val_df["formatted local time"])
-match_test_df["formatted local time"] = pd.to_datetime(match_test_df["formatted local time"])
+    # Load data
+    match_train_val_df = pd.read_csv(r"handball_sample\match_training_model.csv", sep=";", index_col=0)
+    match_test_df = pd.read_csv(r"handball_sample\match_test_model.csv", sep=";", index_col=0)
 
-match_train_df = match_train_val_df[match_train_val_df["game"].isin(["FLEvsKIE", "ERLvsFLE", "FLEvsEIS"])]
-match_val_df = match_train_val_df[match_train_val_df["game"].isin(["GUMvsFLE"])]
+    match_train_val_df["formatted local time"] = pd.to_datetime(match_train_val_df["formatted local time"])
+    match_test_df["formatted local time"] = pd.to_datetime(match_test_df["formatted local time"])
 
-match_test_df.reset_index(inplace=True)
+    match_train_df = match_train_val_df[match_train_val_df["game"].isin(["FLEvsKIE", "ERLvsFLE", "FLEvsEIS"])]
+    match_val_df = match_train_val_df[match_train_val_df["game"].isin(["GUMvsFLE"])]
 
-print("Aligning DataFrames")
-aligned_df_train, ts_player_dict_train = align_df_prep(match_train_df)
-aligned_df_val, ts_player_dict_val = align_df_prep(match_val_df)
-aligned_df_test, ts_player_dict_test = align_df_prep(match_test_df)
+    match_test_df.reset_index(inplace=True)
 
-columns_to_scale = [# Player
-                    "x in m_player", "y in m_player",
-                    "speed in m/s_player", "acceleration in m/s2_player",
-                    "sin angle_player", "cos angle_player",
-                    # Ball
-                    "x in m_ball", "y in m_ball",
-                    "speed in m/s_ball", "acceleration in m/s2_ball",
-                    "sin angle_ball", "cos angle_ball",
-                    # Differences
-                    "difference distance", "difference speed", "difference acceleration",
-                    "difference sin angle", "difference cos angle"]
+    print("Aligning DataFrames")
+    aligned_df_train, ts_player_dict_train = align_df_prep(match_train_df)
+    aligned_df_val, ts_player_dict_val = align_df_prep(match_val_df)
+    aligned_df_test, ts_player_dict_test = align_df_prep(match_test_df)
 
-columns_not_to_scale = [col for col in aligned_df_train.columns if col not in columns_to_scale]
+    columns_to_scale = [# Player
+                        "x in m_player", "y in m_player",
+                        "speed in m/s_player", "acceleration in m/s2_player",
+                        "sin angle_player", "cos angle_player",
+                        # Ball
+                        "x in m_ball", "y in m_ball",
+                        "speed in m/s_ball", "acceleration in m/s2_ball",
+                        "sin angle_ball", "cos angle_ball",
+                        # Differences
+                        "difference distance", "difference speed", "difference acceleration",
+                        "difference sin angle", "difference cos angle"]
 
-scaler = StandardScaler().fit(aligned_df_train[columns_to_scale])
-dump(scaler, f"handball_sample\scaler_{window_length_ms}ms.joblib")
+    columns_not_to_scale = [col for col in aligned_df_train.columns if col not in columns_to_scale]
 
-scaler = load(f"handball_sample\scaler_{window_length_ms}ms.joblib")
+    scaler = StandardScaler().fit(aligned_df_train[columns_to_scale])
+    dump(scaler, f"handball_sample\scaler_{window_length_ms}ms.joblib")
 
-df_train_scaled = pd.DataFrame(scaler.transform(aligned_df_train[columns_to_scale]), columns=columns_to_scale, index=aligned_df_train.index)
-df_val_scaled = pd.DataFrame(scaler.transform(aligned_df_val[columns_to_scale]), columns=columns_to_scale, index=aligned_df_val.index)
-df_test_scaled = pd.DataFrame(scaler.transform(aligned_df_test[columns_to_scale]), columns=columns_to_scale, index=aligned_df_test.index)
+    scaler = load(f"handball_sample\scaler_{window_length_ms}ms.joblib")
 
-match_train_df_scaled = pd.concat([df_train_scaled, aligned_df_train[columns_not_to_scale]], axis=1)
-match_val_df_scaled = pd.concat([df_val_scaled, aligned_df_val[columns_not_to_scale]], axis=1)
-match_test_df_scaled = pd.concat([df_test_scaled, aligned_df_test[columns_not_to_scale]], axis=1)
+    df_train_scaled = pd.DataFrame(scaler.transform(aligned_df_train[columns_to_scale]), columns=columns_to_scale, index=aligned_df_train.index)
+    df_val_scaled = pd.DataFrame(scaler.transform(aligned_df_val[columns_to_scale]), columns=columns_to_scale, index=aligned_df_val.index)
+    df_test_scaled = pd.DataFrame(scaler.transform(aligned_df_test[columns_to_scale]), columns=columns_to_scale, index=aligned_df_test.index)
 
-# Change DataFrame structure
-print("Pivoting DataFrames")
-pivot_df_train = pivot_df_prep(match_train_df_scaled)
-pivot_df_val = pivot_df_prep(match_val_df_scaled)
-pivot_df_test = pivot_df_prep(match_test_df_scaled)
+    match_train_df_scaled = pd.concat([df_train_scaled, aligned_df_train[columns_not_to_scale]], axis=1)
+    match_val_df_scaled = pd.concat([df_val_scaled, aligned_df_val[columns_not_to_scale]], axis=1)
+    match_test_df_scaled = pd.concat([df_test_scaled, aligned_df_test[columns_not_to_scale]], axis=1)
 
-# Only use visible timestamps
-visible_df_train = match_train_df[(match_train_df["tag text"] != "not_visible")]
-visible_df_val = match_val_df[(match_val_df["tag text"] != "not_visible")]
-visible_df_test = match_test_df[(match_test_df["tag text"] != "not_visible")]
-# Get unique timestamps
-timestamps_train = visible_df_train["formatted local time"].unique()
-timestamps_val = visible_df_val["formatted local time"].unique()
-timestamps_test = visible_df_test["formatted local time"].unique()
+    # Change DataFrame structure
+    print("Pivoting DataFrames")
+    pivot_df_train = pivot_df_prep(match_train_df_scaled)
+    pivot_df_val = pivot_df_prep(match_val_df_scaled)
+    pivot_df_test = pivot_df_prep(match_test_df_scaled)
 
-random.seed(42)
-random.shuffle(timestamps_train)
-random.shuffle(timestamps_val)
+    # Only use visible timestamps
+    visible_df_train = match_train_df[(match_train_df["tag text"] != "not_visible")]
+    visible_df_val = match_val_df[(match_val_df["tag text"] != "not_visible")]
+    visible_df_test = match_test_df[(match_test_df["tag text"] != "not_visible")]
+    # Get unique timestamps
+    timestamps_train = visible_df_train["formatted local time"].unique()
+    timestamps_val = visible_df_val["formatted local time"].unique()
+    timestamps_test = visible_df_test["formatted local time"].unique()
 
-# Prepare train, val and test data
-print("Creating samples")
-train_ds, _ = create_samples(timestamp_game=timestamps_train, data_amount=20000, pivot_df=pivot_df_train, timestamp_player_dict = ts_player_dict_train)
-val_ds, _ = create_samples(timestamp_game=timestamps_val, data_amount=7000, pivot_df=pivot_df_val, timestamp_player_dict = ts_player_dict_val)
-test_ds, test_timestamps = create_samples(timestamp_game=timestamps_test, data_amount=2000, pivot_df=pivot_df_test, timestamp_player_dict = ts_player_dict_test)
+    random.seed(42)
+    random.shuffle(timestamps_train)
+    random.shuffle(timestamps_val)
 
-if tuning == "True":
-    print("Starting Optuna study")
-    
-    # Code to use when study already exists and should be continued
-    with open("saved_study.pkl", "rb") as f:
-        study = pickle.load(f)
+    # Prepare train, val and test data
+    print("Creating samples")
+    train_ds, train_timestamps = create_samples(timestamp_game=timestamps_train, data_amount=100, pivot_df=pivot_df_train, timestamp_player_dict = ts_player_dict_train,
+                                                window_length_datetime=window_length_datetime, input_time_steps=input_time_steps)
+    val_ds, _ = create_samples(timestamp_game=timestamps_val, data_amount=100, pivot_df=pivot_df_val, timestamp_player_dict = ts_player_dict_val,
+                                window_length_datetime=window_length_datetime, input_time_steps=input_time_steps)
+    test_ds, test_timestamps = create_samples(timestamp_game=timestamps_test, data_amount=len(timestamps_test), pivot_df=pivot_df_test, timestamp_player_dict = ts_player_dict_test,
+                                                window_length_datetime=window_length_datetime, input_time_steps=input_time_steps)
 
-    # Code to use when new study should be created
-    # study = optuna.create_study(direction="maximize")
-    
-    study.optimize(objective, n_trials=30)
+    if tuning == "True":
+        print("Starting Optuna study")
+        
+        # Code to use when study already exists and should be continued
+        with open("saved_study.pkl", "rb") as f:
+            study = pickle.load(f)
 
-    with open("saved_study.pkl", "wb") as f:
-        pickle.dump(study, f)
-    
-    # Print study statistics
-    print("Study statistics:")
-    print("  Number of finished trials: ", len(study.trials))
-    print("Best trial:")
-    trial = study.best_trial
-    print("  Value: ", trial.value)
-    print("  Params: ")
-    for key, value in trial.params.items():
-        print("    {}: {}".format(key, value))
+        # Code to use when new study should be created
+        # study = optuna.create_study(direction="maximize")
+        
+        study.optimize(objective, n_trials=30)
 
-    trial = study.best_trial
+        with open("saved_study.pkl", "wb") as f:
+            pickle.dump(study, f)
+        
+        # Print study statistics
+        print("Study statistics:")
+        print("  Number of finished trials: ", len(study.trials))
+        print("Best trial:")
+        trial = study.best_trial
+        print("  Value: ", trial.value)
+        print("  Params: ")
+        for key, value in trial.params.items():
+            print("    {}: {}".format(key, value))
 
-    # Create DataFrame with best params and save it
-    params_df = pd.DataFrame(trial.params, index=[0])
-    params_df.to_csv(f"handball_sample/best_params_tst_{window_length_ms}ms.csv")
-else:
-    # Load best params
-    params_tst = pd.read_csv(f"handball_sample/best_params_tst_{window_length_ms}ms_3.csv", index_col=0)
+        trial = study.best_trial
 
-    # Retrieve best params data
-    learning_rate = float(params_tst["learning_rate"][0]) # Learning rate must be converted to float from numpy.float64 due to error
-    batch_size = params_tst["batch_size"][0]
-    dropout = params_tst["dropout"][0]
-    fc_dropout = params_tst["fc_dropout"][0]
-    n_layers = params_tst["n_layers"][0]
-    d_model = params_tst["d_model"][0]
-    n_heads = params_tst["n_heads"][0]
-    d_k = params_tst["d_k"][0]
-    d_v = params_tst["d_v"][0]
-    d_ff = params_tst["d_ff"][0]
+        # Create DataFrame with best params and save it
+        params_df = pd.DataFrame(trial.params, index=[0])
+        params_df.to_csv(f"handball_sample/best_params_tst_{window_length_ms}ms.csv")
+    else:
+        # Load best params
+        params_tst = pd.read_csv(f"handball_sample/best_params_tst_{window_length_ms}ms_3.csv", index_col=0)
 
-    # Give positive class more weight
-    num_class0 = 12.5
-    num_class1 = 1
-    total = num_class0 + num_class1
-    weight_class0 = total / (2.0 * num_class0)
-    weight_class1 = total / (2.0 * num_class1)
-    class_weights = torch.tensor([weight_class0, weight_class1])
+        # Retrieve best params data
+        learning_rate = float(params_tst["learning_rate"][0]) # Learning rate must be converted to float from numpy.float64 due to error
+        batch_size = params_tst["batch_size"][0]
+        dropout = params_tst["dropout"][0]
+        fc_dropout = params_tst["fc_dropout"][0]
+        n_layers = params_tst["n_layers"][0]
+        d_model = params_tst["d_model"][0]
+        n_heads = params_tst["n_heads"][0]
+        d_k = params_tst["d_k"][0]
+        d_v = params_tst["d_v"][0]
+        d_ff = params_tst["d_ff"][0]
 
-    # Final model with best params
-    print("Training final model")
-    dls = TSDataLoaders.from_dsets(train_ds, val_ds, bs=batch_size, tfms=[None, TSClassification()], num_workers=0)
-    dls = dls.to(device)
-    model = TST(c_in=dls.vars, c_out=dls.c, seq_len=dls.len, n_layers=n_layers, d_model=d_model, n_heads=n_heads, d_k=d_k, d_v=d_v, d_ff=d_ff, dropout=dropout, fc_dropout=fc_dropout)
-    learn = Learner(dls, model, loss_func=nn.BCEWithLogitsLoss(pos_weight=class_weights[1]), metrics=[F1ScoreMulti(), RocAucMulti(), PrecisionMulti(), RecallMulti()], cbs=None)
-    
-    number_of_epochs = 20
-    best_f1_score = 0
-    epochs_since_improvement = 0
-    patience = 5
-    delta = 0.03
+        # Give positive class more weight
+        num_class0 = 12.5
+        num_class1 = 1
+        total = num_class0 + num_class1
+        weight_class0 = total / (2.0 * num_class0)
+        weight_class1 = total / (2.0 * num_class1)
+        class_weights = torch.tensor([weight_class0, weight_class1])
 
-    for epoch in range(number_of_epochs):
-        print("Epoch: ", epoch)
-        learn.fit_one_cycle(1, lr_max=learning_rate)
+        # Final model with best params
+        print("Training final model")
+        dls = TSDataLoaders.from_dsets(train_ds, val_ds, bs=batch_size, tfms=[None, TSClassification()], num_workers=0)
+        dls = dls.to(device)
+        model = TST(c_in=dls.vars, c_out=dls.c, seq_len=dls.len, n_layers=n_layers, d_model=d_model, n_heads=n_heads, d_k=d_k, d_v=d_v, d_ff=d_ff, dropout=dropout, fc_dropout=fc_dropout)
+        learn = Learner(dls, model, loss_func=nn.BCEWithLogitsLoss(pos_weight=class_weights[1]), metrics=[F1ScoreMulti(), RocAucMulti(), PrecisionMulti(), RecallMulti()], cbs=None)
+        
+        number_of_epochs = 20
+        best_f1_score = 0
+        epochs_since_improvement = 0
+        patience = 5
+        delta = 0.03
 
-        current_f1_score = learn.recorder.values[-1][2]
+        for epoch in range(number_of_epochs):
+            print("Epoch: ", epoch)
+            learn.fit_one_cycle(1, lr_max=learning_rate)
 
-        if current_f1_score > best_f1_score + delta:
-            best_f1_score = current_f1_score
-            epochs_since_improvement = 0
-        else:
-            epochs_since_improvement += 1
+            current_f1_score = learn.recorder.values[-1][2]
 
-        if epochs_since_improvement >= patience:
-            print("Early stopping")
-            break
+            if current_f1_score > best_f1_score + delta:
+                best_f1_score = current_f1_score
+                epochs_since_improvement = 0
+            else:
+                epochs_since_improvement += 1
 
-    learn.export(f"handball_sample/tst_model_{window_length_ms}ms.pth") # Save final model
-    
-    learner_test = load_learner(f"handball_sample/tst_model_{window_length_ms}ms.pth", cpu=False)
+            if epochs_since_improvement >= patience:
+                print("Early stopping")
+                break
 
-    # Create DataLoader from test dataset
-    test_dl = DataLoader(test_ds, batch_size=batch_size, shuffle=False)
+        learn.export(f"handball_sample/tst_model_{window_length_ms}ms.pth") # Save final model
+        
+        learner_test = load_learner(f"handball_sample/tst_model_{window_length_ms}ms.pth", cpu=False)
 
-    # Evaluate performance on test data
-    start_time_validate = datetime.now()
-    loss, f1, rocAuc, prec, rec = learner_test.validate(dl=test_dl)
-    end_time_validate = datetime.now()
-    print("val", end_time_validate - start_time_validate)
-    print(f"Test Loss: {loss}, Test F1: {f1}, Test ROC AUC: {rocAuc}, Test Precision: {prec}, Test Recall: {rec}")
+        # Create DataLoader from test dataset
+        test_dl = DataLoader(test_ds, batch_size=batch_size, shuffle=False)
 
-    start_time_get_preds = datetime.now()
-    preds, y_true = learner_test.get_preds(dl=test_dl)
-    end_time_get_preds = datetime.now()
-    print("preds", end_time_get_preds - start_time_get_preds)
+        # Evaluate performance on test data
+        start_time_validate = datetime.now()
+        loss, f1, rocAuc, prec, rec = learner_test.validate(dl=test_dl)
+        end_time_validate = datetime.now()
+        print("val", end_time_validate - start_time_validate)
+        print(f"Test Loss: {loss}, Test F1: {f1}, Test ROC AUC: {rocAuc}, Test Precision: {prec}, Test Recall: {rec}")
 
-    # Final accuracy over all timestamps
-    unique = list(dict.fromkeys(test_timestamps))
-    predicted_df = match_test_df[match_test_df["formatted local time"].isin(unique)]
-    predicted_df = predicted_df.drop(predicted_df[predicted_df["full name"].str.contains("ball")].index, axis=0)
-    predicted_df["possession_pred_prob"] = preds
-    # Identify highest probability for possession within each timestamp
-    predicted_df["max_flag"] = predicted_df.groupby("formatted local time")["possession_pred_prob"].transform(lambda x: (x == x.max()).astype(int))
-    predicted_df["correct"] = (predicted_df["max_flag"] == predicted_df["possession"]).astype(int)
-    total_timestamps = predicted_df["formatted local time"].nunique()
-    num_timestamps_all_correct = predicted_df.groupby("formatted local time")["correct"].all().sum()
-    print(f"Number of correct timestamps: {num_timestamps_all_correct}, number of total timestamps: {total_timestamps}, Accuracy: {num_timestamps_all_correct / total_timestamps}")
+        start_time_get_preds = datetime.now()
+        preds, y_true = learner_test.get_preds(dl=test_dl)
+        end_time_get_preds = datetime.now()
+        print("preds", end_time_get_preds - start_time_get_preds)
+
+        # Final accuracy over all timestamps
+        unique = list(dict.fromkeys(test_timestamps))
+        predicted_df = match_test_df[match_test_df["formatted local time"].isin(unique)]
+        predicted_df = predicted_df.drop(predicted_df[predicted_df["full name"].str.contains("ball")].index, axis=0)
+        predicted_df["possession_pred_prob"] = preds
+        # Identify highest probability for possession within each timestamp
+        predicted_df["max_flag"] = predicted_df.groupby("formatted local time")["possession_pred_prob"].transform(lambda x: (x == x.max()).astype(int))
+        predicted_df["correct"] = (predicted_df["max_flag"] == predicted_df["possession"]).astype(int)
+        total_timestamps = predicted_df["formatted local time"].nunique()
+        num_timestamps_all_correct = predicted_df.groupby("formatted local time")["correct"].all().sum()
+        print(f"Number of correct timestamps: {num_timestamps_all_correct}, number of total timestamps: {total_timestamps}, Accuracy: {num_timestamps_all_correct / total_timestamps}")
