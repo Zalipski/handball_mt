@@ -206,7 +206,7 @@ def evaluate_model(model, data):
     
     infer = VariableElimination(model)
     predictions = []
-    probabilities = []
+    positive_probabilities = []
     for _, row in data.iterrows():
         observed_evidence = row.drop("possession").to_dict()
         prediction = infer.query(variables=["possession"], evidence=observed_evidence)
@@ -215,14 +215,16 @@ def evaluate_model(model, data):
         predictions.append(predicted_state)
         
         prob_dist = prediction.values
-        probabilities.append(prob_dist)
+        pos_index = prediction.state_names["possession"].index(1)
+        positive_probabilities.append(prob_dist[pos_index])
+        
     true_values = data["possession"].tolist()
     f1 = f1_score(true_values, predictions, average="macro")
     precision = precision_score(true_values, predictions, average="macro")
     recall = recall_score(true_values, predictions, average="macro")
-    roc_auc = roc_auc_score(true_values, predictions, average="macro")
+    roc_auc = roc_auc_score(true_values, positive_probabilities, average="macro")
     
-    return f1, precision, recall, roc_auc, predictions, probabilities
+    return f1, precision, recall, roc_auc, predictions, positive_probabilities
 
 match_train_val_df = pd.read_csv(r"handball_sample\match_training_model.csv", sep=";", index_col=0)
 match_test_df = pd.read_csv(r"handball_sample\match_test_model.csv", sep=";", index_col=0)
@@ -305,19 +307,13 @@ else:
 
     print(classification_report(test_df_discr["possession"], test_predictions))
 
-    probability_of_possession = [arr[1] for arr in test_probabilities]
-
-    test_df_discr["possession_pred_prob"] = probability_of_possession
-
+    test_df_discr["possession_pred_prob"] = test_probabilities
     # Identify highest probability for possession within each timestamp
     test_df_discr["max_flag"] = test_df_discr.groupby("formatted local time", observed=True)["possession_pred_prob"].transform(lambda x: (x == x.max()).astype(int))
-
     test_df_discr["correct"] = (test_df_discr["max_flag"] == test_df_discr["possession"]).astype(int)
 
     total_timestamps = test_df_discr["formatted local time"].nunique()
-
     num_timestamps_all_correct = test_df_discr.groupby("formatted local time", observed=True)["correct"].all().sum()
-    total_timestamps = test_df_discr["formatted local time"].nunique()
     print(num_timestamps_all_correct, total_timestamps, num_timestamps_all_correct / total_timestamps)
     end_time_final = datetime.now()
     print(end_time_final, "Time taken for final model: ", end_time_final-start_time_final)
