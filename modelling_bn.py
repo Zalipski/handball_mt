@@ -46,7 +46,13 @@ def df_prep(match_df):
     ball_data = match_df[match_df["full name"].str.contains("ball")]
     player_data = match_df[~match_df["full name"].str.contains("ball")]
 
-    aligned_data = player_data.merge(ball_data[["formatted local time", "x in m", "y in m", "speed in m/s", "acceleration in m/s2", "direction of movement in deg"]], 
+    player_data = player_data.copy()
+    ball_data = ball_data.copy()
+
+    player_data["name"] = player_data["full name"]
+    ball_data["name"] = "Ball"
+
+    aligned_data = player_data.merge(ball_data[["formatted local time", "name", "x in m", "y in m", "speed in m/s", "acceleration in m/s2", "direction of movement in deg"]], 
                                     on="formatted local time", how="left", suffixes=("_player", "_ball"))
     
     aligned_data["difference distance"] = np.sqrt(
