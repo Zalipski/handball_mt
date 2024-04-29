@@ -441,10 +441,16 @@ else:
     test_dl = DataLoader(test_ds, batch_size=batch_size, shuffle=False)
 
     # Evaluate performance on test data
+    start_time_validate = datetime.now()
     loss, f1, rocAuc, prec, rec = learner_test.validate(dl=test_dl)
+    end_time_validate = datetime.now()
+    print("val", end_time_validate - start_time_validate)
     print(f"Test Loss: {loss}, Test F1: {f1}, Test ROC AUC: {rocAuc}, Test Precision: {prec}, Test Recall: {rec}")
 
+    start_time_get_preds = datetime.now()
     preds, y_true = learner_test.get_preds(dl=test_dl)
+    end_time_get_preds = datetime.now()
+    print("preds", end_time_get_preds - start_time_get_preds)
 
     # Final accuracy over all timestamps
     unique = list(dict.fromkeys(test_timestamps))
