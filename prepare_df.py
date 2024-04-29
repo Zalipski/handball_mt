@@ -3,8 +3,7 @@ import numpy as np
 from datetime import timedelta
 import time_check_df
 
-def main(preparation_type, game, stats):
-    def calculate_movement_vars(df):
+def calculate_movement_vars(df):
         """ Calculates the speed, acceleration and direction of movement.
         
         Parameters:
@@ -39,6 +38,7 @@ def main(preparation_type, game, stats):
 
         return df
 
+def main(preparation_type, game, stats):
     offsets = {"FLEvsKIE": 500,  "ERLvsFLE": 300, "FLEvsEIS": 400, "FLEvsRNL": None, "GUMvsFLE": -1300, "FLEvsMEL": 350} # Offset values for tags, depend on comparison in time_check_df
 
     if stats == "True":
