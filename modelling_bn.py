@@ -299,7 +299,10 @@ else:
     model.fit(train_df_discr[binned_training_vars], estimator=MaximumLikelihoodEstimator)
 
     # Evaluate on test set
+    start_evaluation = datetime.now()
     test_f1, test_precision, test_recall, test_roc_auc, test_predictions, test_probabilities = evaluate_model(model, test_df_discr[binned_training_vars])
+    end_evaluation = datetime.now()
+    print("Inf time:", end_evaluation - start_evaluation)
     print("Test F1 Score:", test_f1)
     print("Test Precision:", test_precision)
     print("Test Recall:", test_recall)
