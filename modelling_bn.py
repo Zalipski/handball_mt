@@ -297,6 +297,9 @@ else:
 
     model = BayesianNetwork(bn_model_features)
     model.fit(train_df_discr[binned_training_vars], estimator=MaximumLikelihoodEstimator)
+    dump(model, r"handball_sample\bn_model.joblib")
+
+    model = load(r"handball_sample\bn_model.joblib")
 
     # Evaluate on test set
     start_evaluation = datetime.now()
