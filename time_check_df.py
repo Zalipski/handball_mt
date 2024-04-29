@@ -3,8 +3,6 @@ import numpy as np
 from datetime import timedelta
 import sys
 
-game = sys.argv[1]
-
 def round_to_nearest_50ms(dt):
     """ Round the timestamps to nearest 50ms.
     
@@ -29,6 +27,7 @@ def round_to_nearest_50ms(dt):
     return rounded_dt
 
 if __name__ == "__main__":
+    game = sys.argv[1]
     # Load data
     if game == "FLEvsKIE":
         match_h1 = pd.read_csv(r"handball_sample\MD05_Flensburg_Kiel\SG_Flensburg-Handewitt_vs._THW_phase_1.HZ_positions.csv", sep=";")
