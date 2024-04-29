@@ -1,5 +1,7 @@
 import numpy as np
 import pandas as pd
+from joblib import dump, load
+from datetime import datetime
 from datetime import timedelta
 from tqdm import tqdm
 import random
@@ -316,6 +318,9 @@ columns_to_scale = [# Player
 columns_not_to_scale = [col for col in aligned_df_train.columns if col not in columns_to_scale]
 
 scaler = StandardScaler().fit(aligned_df_train[columns_to_scale])
+dump(scaler, f"handball_sample\scaler_{window_length_ms}ms.joblib")
+
+scaler = load(f"handball_sample\scaler_{window_length_ms}ms.joblib")
 
 df_train_scaled = pd.DataFrame(scaler.transform(aligned_df_train[columns_to_scale]), columns=columns_to_scale, index=aligned_df_train.index)
 df_val_scaled = pd.DataFrame(scaler.transform(aligned_df_val[columns_to_scale]), columns=columns_to_scale, index=aligned_df_val.index)
