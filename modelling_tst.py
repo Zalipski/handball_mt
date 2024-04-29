@@ -382,7 +382,7 @@ if tuning == "True":
     params_df.to_csv(f"handball_sample/best_params_tst_{window_length_ms}ms.csv")
 else:
     # Load best params
-    params_tst = pd.read_csv(f"handball_sample/best_params_tst_{window_length_ms}ms.csv", index_col=0)
+    params_tst = pd.read_csv(f"handball_sample/best_params_tst_{window_length_ms}ms_3.csv", index_col=0)
 
     # Retrieve best params data
     learning_rate = float(params_tst["learning_rate"][0]) # Learning rate must be converted to float from numpy.float64 due to error
